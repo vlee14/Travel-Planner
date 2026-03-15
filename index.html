@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Travel Itinerary</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0f0f0f;
+      --surface: #1a1a1a;
+      --surface-hover: #252525;
+      --border: #2d2d2d;
+      --text: #e8e8e8;
+      --text-muted: #888;
+      --accent: #c9a227;
+      --accent-soft: rgba(201, 162, 39, 0.15);
+      --success: #2d8a6e;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --shadow: 0 4px 24px rgba(0,0,0,0.4);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', system-ui, sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+    }
+
+    .page {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem;
+    }
+
+    h1 {
+      font-family: 'Fraunces', serif;
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin: 0 0 0.5rem;
+      letter-spacing: -0.02em;
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      margin: 0 0 2rem;
+      font-size: 0.95rem;
+    }
+
+    .input-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      box-shadow: var(--shadow);
+    }
+
+    .input-section h2 {
+      font-family: 'Fraunces', serif;
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin: 0 0 1rem;
+      color: var(--text);
+    }
+
+    .tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .tab {
+      padding: 0.5rem 1rem;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-muted);
+      font: inherit;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s, border-color 0.2s;
+    }
+
+    .tab:hover {
+      color: var(--text);
+      background: var(--surface-hover);
+    }
+
+    .tab.active {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .input-panel {
+      display: none;
+    }
+
+    .input-panel.active {
+      display: block;
+    }
+
+    .input-panel label {
+      display: block;
+      margin-bottom: 0.5rem;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 160px;
+      padding: 1rem;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font: inherit;
+      font-size: 13px;
+      resize: vertical;
+      transition: border-color 0.2s;
+    }
+
+    textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    textarea::placeholder {
+      color: var(--text-muted);
+    }
+
+    input[type="url"] {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font: inherit;
+      margin-bottom: 1rem;
+    }
+
+    input[type="url"]:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .btn {
+      padding: 0.65rem 1.25rem;
+      border-radius: var(--radius-sm);
+      border: none;
+      font: inherit;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: var(--bg);
+    }
+
+    .btn-primary:hover {
+      filter: brightness(1.1);
+    }
+
+    .btn-primary:active {
+      transform: scale(0.98);
+    }
+
+    .help-text {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 0.75rem;
+    }
+
+    .help-text a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .help-text a:hover {
+      text-decoration: underline;
+    }
+
+    .itinerary-section {
+      display: none;
+    }
+
+    .itinerary-section.visible {
+      display: block;
+    }
+
+    .itinerary-section > h2 {
+      font-family: 'Fraunces', serif;
+      font-size: 1.25rem;
+      margin: 0 0 1.5rem;
+    }
+
+    .day-group-hotel {
+      font-size: 0.9rem;
+      color: var(--accent);
+      margin-bottom: 0.75rem;
+    }
+
+
+    /* List / card view */
+    .itinerary-list {
+      display: none;
+    }
+
+    .itinerary-list.visible {
+      display: block;
+    }
+
+    .location-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      box-shadow: var(--shadow);
+    }
+
+    .location-card-summary {
+      margin-bottom: 1.25rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      position: relative;
+      padding-right: 2rem;
+    }
+
+    .location-card-summary::after {
+      content: '';
+      position: absolute;
+      top: 0.5rem;
+      right: 0.5rem;
+      width: 0.6rem;
+      height: 0.6rem;
+      border-right: 2px solid var(--text-muted);
+      border-bottom: 2px solid var(--text-muted);
+      transform: rotate(45deg);
+      transition: transform 0.2s;
+    }
+
+    .location-card.collapsed .location-card-summary::after {
+      transform: rotate(-45deg);
+    }
+
+    .location-card-name {
+      font-family: 'Fraunces', serif;
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: var(--text);
+      margin: 0 0 0.35rem;
+    }
+
+    .location-card-meta {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+
+    .location-card-meta .date-range {
+      color: var(--accent);
+    }
+
+    .location-card-meta .hotel {
+      margin-top: 0.25rem;
+    }
+
+    .location-card.collapsed .location-card-summary {
+      border-bottom-color: transparent;
+      margin-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .location-card.collapsed .location-card-days {
+      display: none;
+    }
+
+    .day-group {
+      margin-bottom: 2rem;
+    }
+
+    .location-card .day-group:last-child {
+      margin-bottom: 0;
+    }
+
+    .day-group-title {
+      font-family: 'Fraunces', serif;
+      font-size: 1.1rem;
+      color: var(--accent);
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.35rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .event-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      display: flex;
+      gap: 1rem;
+      align-items: flex-start;
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    .event-card:hover {
+      background: var(--surface-hover);
+      border-color: var(--accent);
+    }
+
+    .event-time {
+      flex-shrink: 0;
+      font-weight: 500;
+      color: var(--accent);
+      min-width: 4rem;
+    }
+
+    .event-content {
+      flex: 1;
+    }
+
+    .error-msg {
+      background: rgba(200, 80, 80, 0.15);
+      border: 1px solid rgba(200, 80, 80, 0.4);
+      color: #e88;
+      padding: 1rem;
+      border-radius: var(--radius-sm);
+      margin-top: 1rem;
+      display: none;
+    }
+
+    .error-msg.visible {
+      display: block;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 3rem 2rem;
+      color: var(--text-muted);
+    }
+
+    .empty-state p {
+      margin: 0 0 0.5rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>Travel Itinerary</h1>
+
+    <section class="input-section">
+      <h2>Import data</h2>
+      <div class="tabs">
+        <button type="button" class="tab active" data-tab="paste">Paste CSV</button>
+        <button type="button" class="tab" data-tab="url">Google Sheet URL</button>
+      </div>
+
+      <div id="panel-paste" class="input-panel active">
+        <label for="csv-input">Paste table data (e.g. from Google Sheets: copy cells, then paste here)</label>
+        <textarea id="csv-input" placeholder="Paste your sheet here. First row = locations, second row = dates, first column = times, rest = content.&#10;Example:&#10;&#9;,Tokyo,Osaka&#10;&#9;,Mar 15,Mar 16&#10;9:00,Breakfast,Museum&#10;14:00,Shrine,Travel"></textarea>
+        <p class="help-text">Tip: In Google Sheets, select your range and copy (Ctrl+C). The first row should be locations, second row dates, first column times.</p>
+        <button type="button" class="btn btn-primary" id="btn-parse">Build itinerary</button>
+      </div>
+
+      <div id="panel-url" class="input-panel">
+        <label for="sheet-url">Published Google Sheet CSV URL</label>
+        <input type="url" id="sheet-url" placeholder="https://docs.google.com/spreadsheets/d/.../export?format=csv&gid=0">
+        <p class="help-text">File → Share → Publish to web → choose your sheet → Comma-separated values (.csv) → Publish. Then paste the link here.</p>
+        <button type="button" class="btn btn-primary" id="btn-fetch">Load from sheet</button>
+      </div>
+
+      <div id="error-msg" class="error-msg" role="alert"></div>
+    </section>
+
+    <section id="itinerary-section" class="itinerary-section">
+      <h2>Your itinerary</h2>
+      <div id="itinerary-list" class="itinerary-list visible">
+        <div id="list-content"></div>
+      </div>
+    </section>
+
+    <div id="empty-state" class="empty-state">
+      <p>Paste your itinerary data above and click &quot;Build itinerary&quot; to see it here.</p>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const csvInput = document.getElementById('csv-input');
+      const sheetUrl = document.getElementById('sheet-url');
+      const btnParse = document.getElementById('btn-parse');
+      const btnFetch = document.getElementById('btn-fetch');
+      const errorMsg = document.getElementById('error-msg');
+      const itinerarySection = document.getElementById('itinerary-section');
+      const inputSection = document.querySelector('.input-section');
+      const emptyState = document.getElementById('empty-state');
+      const listContent = document.getElementById('list-content');
+      const tabs = document.querySelectorAll('.tab');
+      const panels = document.querySelectorAll('.input-panel');
+
+      let parsed = null; // { locations, dates, rows: [ { time, cells[] } ] }
+
+      function showError(msg) {
+        errorMsg.textContent = msg || '';
+        errorMsg.classList.toggle('visible', !!msg);
+      }
+
+      function parseCSV(text) {
+        const rows = [];
+        let current = '';
+        let inQuotes = false;
+        const row = [];
+        const pushRow = () => {
+          if (row.length) rows.push(row.slice());
+          row.length = 0;
+        };
+        const pushCell = () => {
+          row.push(current.trim());
+          current = '';
+        };
+        for (let i = 0; i < text.length; i++) {
+          const c = text[i];
+          if (inQuotes) {
+            if (c === '"') inQuotes = false;
+            else current += c;
+            continue;
+          }
+          if (c === '"') { inQuotes = true; continue; }
+          if (c === '\n' || c === '\r') {
+            pushCell();
+            if (c === '\r' && text[i + 1] === '\n') i++;
+            pushRow();
+            continue;
+          }
+          if (c === '\t' || c === ',') {
+            pushCell();
+            continue;
+          }
+          current += c;
+        }
+        pushCell();
+        pushRow();
+        return rows;
+      }
+
+      function looksLikeTime(str) {
+        const s = (str || '').toString().trim();
+        return /^\d{1,2}(?::\d{2})?\s*(am|pm)?$/i.test(s);
+      }
+
+      function looksLikeHotelHeader(str) {
+        const s = (str || '').toString().trim();
+        return /\bhotel\b/i.test(s);
+      }
+
+      function parseSheetRows(rows) {
+        if (!rows.length) return null;
+        const first = rows[0];
+        const locations = first.map((c, i) => (i === 0 ? (c || 'Time') : (c || `Location ${i}`)));
+        const dates = rows[1] ? rows[1].map((c, i) => (i === 0 ? '' : (c || ''))) : first.map(() => '');
+        const dataRows = rows.slice(2);
+        let hotelCells = null;
+        const data = dataRows
+          .filter(row => {
+            if (looksLikeHotelHeader(row[0])) {
+              hotelCells = row.slice(0, locations.length);
+              while (hotelCells.length < locations.length) hotelCells.push('');
+              return false;
+            }
+            return looksLikeTime(row[0]);
+          })
+          .map(row => {
+            const time = (row[0] || '').toString().trim();
+            const cells = row.slice(1);
+            return { time, cells };
+          });
+        return { locations, dates, rows: data, hotelCells };
+      }
+
+      function buildItinerary(csvText, fromUrl = false) {
+        showError('');
+        const rows = parseCSV(csvText);
+        if (!rows.length) {
+          showError('No data found. Paste your sheet content (first row = locations, second = dates, first column = times).');
+          return;
+        }
+        parsed = parseSheetRows(rows);
+        if (!parsed || !parsed.rows.length) {
+          showError('Could not parse structure. Ensure first row = locations, second row = dates, first column = times.');
+          return;
+        }
+        render();
+        itinerarySection.classList.add('visible');
+        emptyState.style.display = 'none';
+        inputSection.style.display = 'none';
+
+        if (!fromUrl) {
+          updateUrlWithData(csvText);
+        }
+      }
+
+      function render() {
+        if (!parsed) return;
+        const { locations, dates, rows, hotelCells } = parsed;
+
+        // Valid day columns: must have both date and location (non-empty after trim).
+        const validDayCols = [];
+        for (let i = 1; i < locations.length; i++) {
+          const d = (dates[i] || '').toString().trim();
+          const loc = (locations[i] || '').toString().trim();
+          if (d && loc) validDayCols.push(i);
+        }
+        const lastValidColIndex = validDayCols.length ? validDayCols[validDayCols.length - 1] : -1;
+
+        // Hotel stays: backfill empty cells with previous hotel; "through" = date before next hotel change.
+        let effectiveHotel = [];
+        let throughDateForCol = [];
+        if (hotelCells && locations.length) {
+          const pad = Array(locations.length).fill('');
+          const cells = hotelCells.length >= locations.length ? hotelCells : [...hotelCells, ...pad.slice(hotelCells.length)];
+          effectiveHotel = cells.map((c, i) => (i === 0 ? '' : (c || '').trim()));
+          for (let i = 1; i < effectiveHotel.length; i++) {
+            if (!effectiveHotel[i]) effectiveHotel[i] = effectiveHotel[i - 1] || '';
+          }
+          throughDateForCol = effectiveHotel.map((h, i) => {
+            if (!h || i === 0) return null;
+            const nextDiff = effectiveHotel.findIndex((h2, j) => j > i && h2 !== h);
+            if (nextDiff === -1) return null;
+            const throughDate = (dates[nextDiff - 1] || '').toString().trim();
+            return throughDate || null;
+          });
+        }
+
+        // List view: only valid day columns. Group by date, then by time. Hotel from effectiveHotel (through next hotel).
+        const byDate = {};
+        const locationsByDateKey = {};
+        const hotelByDateKey = {};
+        const hotelThroughNextByDateKey = {};
+        validDayCols.forEach(colIndex => {
+          const dateKey = (dates[colIndex] || '').toString().trim() || (locations[colIndex] || '').toString().trim();
+          const loc = (locations[colIndex] || '').toString().trim();
+          if (!byDate[dateKey]) byDate[dateKey] = [];
+          if (!locationsByDateKey[dateKey]) locationsByDateKey[dateKey] = new Set();
+          if (loc) locationsByDateKey[dateKey].add(loc);
+          const isLastCol = colIndex === lastValidColIndex;
+          const explicitHotel = (hotelCells && (hotelCells[colIndex] || '').trim()) || '';
+          if (effectiveHotel[colIndex] && (!isLastCol || explicitHotel)) {
+            hotelByDateKey[dateKey] = effectiveHotel[colIndex];
+            if (throughDateForCol[colIndex]) hotelThroughNextByDateKey[dateKey] = throughDateForCol[colIndex];
+          }
+          rows.forEach(({ time, cells }) => {
+            const content = (cells[colIndex - 1] || '').trim();
+            if (content) byDate[dateKey].push({ time, location: locations[colIndex], content });
+          });
+        });
+        // Last date: no hotel unless the last valid column has an explicit hotel (same date can appear in multiple columns).
+        if (lastValidColIndex >= 0 && !(hotelCells && (hotelCells[lastValidColIndex] || '').trim())) {
+          const lastDateKey = (dates[lastValidColIndex] || '').toString().trim();
+          delete hotelByDateKey[lastDateKey];
+          delete hotelThroughNextByDateKey[lastDateKey];
+        }
+        listContent.innerHTML = '';
+        // Group valid columns by location, then split each location into continuous date ranges (one card per run).
+        const locationToCols = {};
+        validDayCols.forEach(colIndex => {
+          const loc = (locations[colIndex] || '').toString().trim();
+          if (!loc) return;
+          if (!locationToCols[loc]) locationToCols[loc] = [];
+          locationToCols[loc].push(colIndex);
+        });
+        const ONE_DAY_MS = 86400000;
+        const locationRuns = [];
+        Object.keys(locationToCols).forEach(locName => {
+          const colIndices = locationToCols[locName];
+          const entries = colIndices.map(i => ({
+            colIndex: i,
+            dateKey: (dates[i] || '').toString().trim(),
+            ts: parseDateForSort((dates[i] || '').toString().trim())
+          })).filter(e => e.ts !== Infinity);
+          if (!entries.length) return;
+          entries.sort((a, b) => a.ts - b.ts);
+          const runs = [];
+          let run = [entries[0]];
+          for (let i = 1; i < entries.length; i++) {
+            const gap = entries[i].ts - entries[i - 1].ts;
+            if (gap > ONE_DAY_MS * 1.5) {
+              runs.push(run);
+              run = [entries[i]];
+            } else {
+              run.push(entries[i]);
+            }
+          }
+          if (run.length) runs.push(run);
+          runs.forEach(runEntries => {
+            const dateKeys = runEntries.map(e => e.dateKey);
+            const runColIndices = runEntries.map(e => e.colIndex);
+            const hotelsInRun = [];
+            runColIndices.forEach(colIndex => {
+              const hotel = effectiveHotel[colIndex] || '';
+              const through = throughDateForCol[colIndex] || null;
+              if (!hotel) return;
+              const last = hotelsInRun[hotelsInRun.length - 1];
+              if (last && last.hotel === hotel) {
+                if (through) last.through = through;
+              } else {
+                hotelsInRun.push({ hotel, through });
+              }
+            });
+            locationRuns.push({
+              locName,
+              dateKeys,
+              colIndices: runColIndices,
+              hotels: hotelsInRun
+            });
+          });
+        });
+        locationRuns.sort((a, b) => parseDateForSort(a.dateKeys[0]) - parseDateForSort(b.dateKeys[0]));
+
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+
+        locationRuns.forEach(run => {
+          const dateRangeStr = run.dateKeys.length === 1 ? run.dateKeys[0] : `${run.dateKeys[0]} – ${run.dateKeys[run.dateKeys.length - 1]}`;
+          const cardEl = document.createElement('div');
+          cardEl.className = 'location-card';
+
+          let isCurrent = false;
+          const startTs = parseDateForSort(run.dateKeys[0]);
+          const endTs = parseDateForSort(run.dateKeys[run.dateKeys.length - 1]);
+          if (startTs !== Infinity && endTs !== Infinity) {
+            const checkDate = new Date(now);
+            const startYear = new Date(startTs).getFullYear();
+            // If parsed year is old (e.g. 2000 from default), match year to ignore it
+            if (startYear < 2020) checkDate.setFullYear(startYear);
+            if (checkDate.getTime() >= startTs && checkDate.getTime() <= endTs) isCurrent = true;
+          }
+
+          cardEl.className = isCurrent ? 'location-card' : 'location-card collapsed';
+          let metaHtml = `<span class="date-range">${escapeHtml(dateRangeStr)}</span>`;
+          run.hotels.forEach(({ hotel, through }) => {
+            const line = through ? `Hotel: ${escapeHtml(hotel)} (through ${escapeHtml(through)})` : `Hotel: ${escapeHtml(hotel)}`;
+            metaHtml += `<div class="hotel">${line}</div>`;
+          });
+          cardEl.innerHTML = `
+            <div class="location-card-summary">
+              <h3 class="location-card-name">${escapeHtml(run.locName)}</h3>
+              <div class="location-card-meta">${metaHtml}</div>
+            </div>
+          `;
+
+          cardEl.querySelector('.location-card-summary').addEventListener('click', () => {
+            cardEl.classList.toggle('collapsed');
+          });
+
+          const daysContainer = document.createElement('div');
+          daysContainer.className = 'location-card-days';
+          run.dateKeys.forEach(dateLabel => {
+            const events = (byDate[dateLabel] || []).filter(e => e.location === run.locName);
+            events.sort((a, b) => parseTimeForSort(a.time) - parseTimeForSort(b.time));
+            const dayDiv = document.createElement('div');
+            dayDiv.className = 'day-group';
+            dayDiv.innerHTML = `<div class="day-group-title">${escapeHtml(dateLabel)}</div>`;
+            events.forEach(({ time, content }) => {
+              const eventCard = document.createElement('div');
+              eventCard.className = 'event-card';
+              eventCard.innerHTML = `
+                <span class="event-time">${escapeHtml(time)}</span>
+                <span class="event-content">${escapeHtml(content)}</span>
+              `;
+              dayDiv.appendChild(eventCard);
+            });
+            daysContainer.appendChild(dayDiv);
+          });
+          cardEl.appendChild(daysContainer);
+          listContent.appendChild(cardEl);
+        });
+      }
+
+      async function updateUrlWithData(csvText) {
+        if (!window.CompressionStream) {
+          console.warn('CompressionStream API not supported. Cannot update URL with data.');
+          return;
+        }
+        try {
+          const stream = new Blob([new TextEncoder().encode(csvText)]).stream().pipeThrough(new CompressionStream('gzip'));
+          const compressed = await new Response(stream).arrayBuffer();
+          const base64 = btoa(String.fromCharCode.apply(null, new Uint8Array(compressed)));
+          const urlSafeBase64 = base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+          const url = new URL(window.location);
+          url.searchParams.set('data', urlSafeBase64);
+          window.history.replaceState({}, '', url);
+        } catch (e) {
+          console.error('Failed to compress and update URL:', e);
+        }
+      }
+
+      async function loadFromUrl() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const data = urlParams.get('data');
+        if (data && window.DecompressionStream) {
+          try {
+            let base64 = data.replace(/-/g, '+').replace(/_/g, '/');
+            while (base64.length % 4) {
+              base64 += '=';
+            }
+            const binaryString = atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+            }
+
+            const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+            const decompressed = await new Response(stream).text();
+            buildItinerary(decompressed, true);
+          } catch (e) {
+            console.error('Failed to decompress data from URL:', e);
+            showError('Could not load itinerary from URL. The data might be corrupted.');
+          }
+        }
+      }
+
+      function parseDateForSort(label) {
+        const s = (label || '').toString().trim();
+        if (!s) return Infinity;
+        const d = new Date(s);
+        if (!isNaN(d.getTime())) return d.getTime();
+        const match = s.match(/^(\w{3,})\s+(\d{1,2})$/i);
+        if (match) {
+          const d2 = new Date(match[1] + ' ' + match[2] + ', 2000');
+          if (!isNaN(d2.getTime())) return d2.getTime();
+        }
+        return Infinity;
+      }
+
+      function parseTimeForSort(timeStr) {
+        const s = (timeStr || '').toString().trim();
+        const m = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
+        if (!m) return 0;
+        let h = parseInt(m[1], 10);
+        const min = m[2] ? parseInt(m[2], 10) : 0;
+        const pm = (m[3] || '').toLowerCase() === 'pm';
+        const am = (m[3] || '').toLowerCase() === 'am';
+        if (pm && h < 12) h += 12;
+        if (am && h === 12) h = 0;
+        if (!pm && !am && h <= 12) h = h % 12;
+        return h * 60 + min;
+      }
+
+      function escapeHtml(s) {
+        const div = document.createElement('div');
+        div.textContent = s;
+        return div.innerHTML;
+      }
+
+      btnParse.addEventListener('click', () => buildItinerary(csvInput.value));
+
+      btnFetch.addEventListener('click', async () => {
+        const url = sheetUrl.value.trim();
+        if (!url) {
+          showError('Please enter a Google Sheet CSV URL.');
+          return;
+        }
+        showError('');
+        try {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`Failed to load: ${res.status}`);
+          const text = await res.text();
+          buildItinerary(text);
+        } catch (e) {
+          showError('Could not load from URL. If the sheet is public, try publishing it as CSV (File → Share → Publish to web). Otherwise paste the data manually.');
+        }
+      });
+
+      tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          const id = tab.dataset.tab;
+          tabs.forEach(t => t.classList.remove('active'));
+          panels.forEach(p => {
+            p.classList.toggle('active', p.id === 'panel-' + id);
+          });
+          tab.classList.add('active');
+          showError('');
+        });
+      });
+
+      loadFromUrl();
+
+    })();
+  </script>
+</body>
+</html>
