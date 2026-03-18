@@ -140,7 +140,8 @@
       color: var(--text-muted);
     }
 
-    input[type="url"] {
+    input[type="url"],
+    input[type="password"] {
       width: 100%;
       padding: 0.75rem 1rem;
       border-radius: var(--radius-sm);
@@ -151,7 +152,8 @@
       margin-bottom: 1rem;
     }
 
-    input[type="url"]:focus {
+    input[type="url"]:focus,
+    input[type="password"]:focus {
       outline: none;
       border-color: var(--accent);
     }
@@ -194,6 +196,15 @@
       text-decoration: underline;
     }
 
+    .weather-controls {
+      margin-bottom: 2rem;
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      flex-wrap: wrap;
+      display: none; /* hidden until render */
+    }
+
     .itinerary-section {
       display: none;
     }
@@ -214,6 +225,18 @@
       margin-bottom: 0.75rem;
     }
 
+    .weather-badge {
+      display: inline-flex;
+      align-items: center;
+      margin-left: 0.75rem;
+      font-size: 0.9rem;
+      font-weight: 400;
+      color: var(--text);
+    }
+
+    .weather-icon {
+      filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.8));
+    }
 
     /* List / card view */
     .itinerary-list {
@@ -390,6 +413,11 @@
 
     <section id="itinerary-section" class="itinerary-section">
       <h2>Your itinerary</h2>
+      <div id="weather-controls" class="weather-controls">
+        <input type="password" id="api-key" placeholder="Visual Crossing API Key" style="margin-bottom: 0; max-width: 300px;">
+        <button type="button" class="btn btn-primary" id="btn-weather">Get Weather</button>
+      </div>
+
       <div id="itinerary-list" class="itinerary-list visible">
         <div id="list-content"></div>
       </div>
@@ -406,6 +434,9 @@
       const sheetUrl = document.getElementById('sheet-url');
       const btnParse = document.getElementById('btn-parse');
       const btnFetch = document.getElementById('btn-fetch');
+      const btnWeather = document.getElementById('btn-weather');
+      const apiKeyInput = document.getElementById('api-key');
+      const weatherControls = document.getElementById('weather-controls');
       const errorMsg = document.getElementById('error-msg');
       const itinerarySection = document.getElementById('itinerary-section');
       const inputSection = document.querySelector('.input-section');
@@ -509,6 +540,14 @@
         itinerarySection.classList.add('visible');
         emptyState.style.display = 'none';
         inputSection.style.display = 'none';
+
+        if (apiKeyInput.value.trim()) {
+          weatherControls.style.display = 'none';
+          fetchAllWeather();
+        } else {
+          weatherControls.style.display = 'flex';
+          btnWeather.style.display = '';
+        }
 
         if (!fromUrl) {
           updateUrlWithData(csvText);
@@ -650,6 +689,11 @@
             if (startYear < 2020) checkDate.setFullYear(startYear);
             if (checkDate.getTime() >= startTs && checkDate.getTime() <= endTs) isCurrent = true;
           }
+          
+          // Store metadata for weather fetching
+          cardEl.dataset.location = run.locName;
+          cardEl.dataset.start = run.dateKeys[0];
+          cardEl.dataset.end = run.dateKeys[run.dateKeys.length - 1];
 
           cardEl.className = isCurrent ? 'location-card' : 'location-card collapsed';
           let metaHtml = `<span class="date-range">${escapeHtml(dateRangeStr)}</span>`;
@@ -675,7 +719,7 @@
             events.sort((a, b) => parseTimeForSort(a.time) - parseTimeForSort(b.time));
             const dayDiv = document.createElement('div');
             dayDiv.className = 'day-group';
-            dayDiv.innerHTML = `<div class="day-group-title">${escapeHtml(dateLabel)}</div>`;
+            dayDiv.innerHTML = `<div class="day-group-title" data-date="${escapeHtml(dateLabel)}">${escapeHtml(dateLabel)}</div>`;
             events.forEach(({ time, content }) => {
               const eventCard = document.createElement('div');
               eventCard.className = 'event-card';
@@ -713,6 +757,9 @@
 
       async function loadFromUrl() {
         const urlParams = new URLSearchParams(window.location.search);
+        const key = urlParams.get('key');
+        if (key) apiKeyInput.value = key;
+
         const data = urlParams.get('data');
         if (data && window.DecompressionStream) {
           try {
@@ -764,6 +811,100 @@
         return h * 60 + min;
       }
 
+      function parseSmartDate(str) {
+        const s = (str || '').toString().trim();
+        if (!s) return null;
+        const now = new Date();
+        let d = new Date(s);
+        // Handle Month Day format without year (defaults to 2001 or current)
+        const match = s.match(/^([a-zA-Z]{3,})\s+(\d{1,2})$/i);
+        if (match) {
+          d = new Date(`${match[1]} ${match[2]}, ${now.getFullYear()}`);
+        } else if (!isNaN(d.getTime()) && d.getFullYear() === 2001) {
+          d.setFullYear(now.getFullYear());
+        }
+        if (isNaN(d.getTime())) return null;
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+      }
+
+      async function fetchWeatherForCard(card) {
+        const key = apiKeyInput.value.trim();
+        if (!key) {
+          alert('Please enter a Visual Crossing API Key');
+          return;
+        }
+        const loc = card.dataset.location;
+        const start = parseSmartDate(card.dataset.start);
+        const end = parseSmartDate(card.dataset.end);
+        if (!loc || !start) return;
+
+        // Multi-date query: date1/date2
+        const datePath = (end && end !== start) ? `${start}/${end}` : start;
+        const url = `https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/${encodeURIComponent(loc)}/${datePath}?unitGroup=us&key=${key}&contentType=json`;
+
+        try {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error('Weather API error: ' + res.status);
+          const data = await res.json();
+          if (!data.days) return;
+
+          if (data.days.length > 0) {
+            const maxT = Math.round(Math.max(...data.days.map(d => d.tempmax)));
+            const minT = Math.round(Math.min(...data.days.map(d => d.tempmin)));
+            
+            const uniqueIcons = [...new Set(data.days.map(d => d.icon))];
+            const iconsHtml = uniqueIcons.map(icon => 
+              `<img src="https://raw.githubusercontent.com/visualcrossing/WeatherIcons/refs/heads/main/PNG/2nd%20Set%20-%20Color/${icon}.png" alt="${icon}" title="${icon}" class="weather-icon" style="width: 1.4em; height: 1.4em; vertical-align: middle;">`
+            ).join('');
+
+            const dateRangeEl = card.querySelector('.date-range');
+            if (dateRangeEl) {
+              let sumEl = card.querySelector('.weather-summary-inline');
+              if (!sumEl) {
+                sumEl = document.createElement('span');
+                sumEl.className = 'weather-summary-inline';
+                sumEl.style.marginLeft = '0.75rem';
+                sumEl.style.display = 'inline-flex';
+                sumEl.style.alignItems = 'center';
+                sumEl.style.gap = '0.35rem';
+                sumEl.style.color = 'var(--text)';
+                dateRangeEl.parentNode.insertBefore(sumEl, dateRangeEl.nextSibling);
+              }
+              sumEl.innerHTML = `${iconsHtml} <b>${minT}°–${maxT}°</b>`;
+            }
+          }
+
+          const groups = card.querySelectorAll('.day-group-title');
+          groups.forEach(title => {
+            const tDate = parseSmartDate(title.dataset.date);
+            const dayData = data.days.find(d => d.datetime === tDate);
+            if (dayData) {
+              let badge = title.querySelector('.weather-badge');
+              if (!badge) {
+                badge = document.createElement('span');
+                badge.className = 'weather-badge';
+                title.appendChild(badge);
+              }
+              const iconUrl = `https://raw.githubusercontent.com/visualcrossing/WeatherIcons/refs/heads/main/PNG/2nd%20Set%20-%20Color/${dayData.icon}.png`;
+              badge.innerHTML = `<img src="${iconUrl}" alt="${dayData.icon}" class="weather-icon" style="width: 1.4em; height: 1.4em; margin-right: 0.3em;"> ${Math.round(dayData.tempmax)}° / ${Math.round(dayData.tempmin)}° ${dayData.conditions}`;
+            }
+          });
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      async function fetchAllWeather() {
+        const cards = document.querySelectorAll('.location-card');
+        for (const card of cards) {
+          await fetchWeatherForCard(card);
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+      }
+
       function escapeHtml(s) {
         const div = document.createElement('div');
         div.textContent = s;
@@ -771,6 +912,20 @@
       }
 
       btnParse.addEventListener('click', () => buildItinerary(csvInput.value));
+
+      apiKeyInput.addEventListener('input', () => {
+        const url = new URL(window.location);
+        const val = apiKeyInput.value.trim();
+        if (val) {
+          url.searchParams.set('key', val);
+        } else {
+          url.searchParams.delete('key');
+        }
+        window.history.replaceState({}, '', url);
+        btnWeather.style.display = '';
+      });
+
+      btnWeather.addEventListener('click', fetchAllWeather);
 
       btnFetch.addEventListener('click', async () => {
         const url = sheetUrl.value.trim();
