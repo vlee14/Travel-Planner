@@ -196,15 +196,6 @@
       text-decoration: underline;
     }
 
-    .weather-controls {
-      margin-bottom: 2rem;
-      display: flex;
-      gap: 1rem;
-      align-items: center;
-      flex-wrap: wrap;
-      display: none; /* hidden until render */
-    }
-
     .itinerary-section {
       display: none;
     }
@@ -413,11 +404,6 @@
 
     <section id="itinerary-section" class="itinerary-section">
       <h2>Your itinerary</h2>
-      <div id="weather-controls" class="weather-controls">
-        <input type="password" id="api-key" placeholder="Visual Crossing API Key" style="margin-bottom: 0; max-width: 300px;">
-        <button type="button" class="btn btn-primary" id="btn-weather">Get Weather</button>
-      </div>
-
       <div id="itinerary-list" class="itinerary-list visible">
         <div id="list-content"></div>
       </div>
@@ -434,9 +420,6 @@
       const sheetUrl = document.getElementById('sheet-url');
       const btnParse = document.getElementById('btn-parse');
       const btnFetch = document.getElementById('btn-fetch');
-      const btnWeather = document.getElementById('btn-weather');
-      const apiKeyInput = document.getElementById('api-key');
-      const weatherControls = document.getElementById('weather-controls');
       const errorMsg = document.getElementById('error-msg');
       const itinerarySection = document.getElementById('itinerary-section');
       const inputSection = document.querySelector('.input-section');
@@ -541,13 +524,7 @@
         emptyState.style.display = 'none';
         inputSection.style.display = 'none';
 
-        if (apiKeyInput.value.trim()) {
-          weatherControls.style.display = 'none';
-          fetchAllWeather();
-        } else {
-          weatherControls.style.display = 'flex';
-          btnWeather.style.display = '';
-        }
+        fetchAllWeather();
 
         if (!fromUrl) {
           updateUrlWithData(csvText);
@@ -757,9 +734,6 @@
 
       async function loadFromUrl() {
         const urlParams = new URLSearchParams(window.location.search);
-        const key = urlParams.get('key');
-        if (key) apiKeyInput.value = key;
-
         const data = urlParams.get('data');
         if (data && window.DecompressionStream) {
           try {
@@ -830,32 +804,141 @@
         return `${y}-${m}-${day}`;
       }
 
-      async function fetchWeatherForCard(card) {
-        const key = apiKeyInput.value.trim();
-        if (!key) {
-          alert('Please enter a Visual Crossing API Key');
-          return;
+      async function getCoordinates(location) {
+        try {
+          // Nominatim requires a user-agent, but browser fetch handles standard headers.
+          // We use the search endpoint to find lat/lon.
+          const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1`;
+          const res = await fetch(url);
+          if (!res.ok) return null;
+          const data = await res.json();
+          if (data && data.length > 0) {
+            return { lat: data[0].lat, lon: data[0].lon };
+          }
+        } catch (e) {
+          console.error('Geocoding error:', e);
         }
+        return null;
+      }
+
+      function getWmoInfo(code) {
+        const map = {
+          0: { icon: 'clear-day', label: 'Clear sky' },
+          1: { icon: 'partly-cloudy-day', label: 'Mainly clear' },
+          2: { icon: 'partly-cloudy-day', label: 'Partly cloudy' },
+          3: { icon: 'cloudy', label: 'Overcast' },
+          45: { icon: 'fog', label: 'Fog' },
+          48: { icon: 'fog', label: 'Depositing rime fog' },
+          51: { icon: 'rain', label: 'Light drizzle' },
+          53: { icon: 'rain', label: 'Moderate drizzle' },
+          55: { icon: 'rain', label: 'Dense drizzle' },
+          56: { icon: 'sleet', label: 'Light freezing drizzle' },
+          57: { icon: 'sleet', label: 'Dense freezing drizzle' },
+          61: { icon: 'rain', label: 'Slight rain' },
+          63: { icon: 'rain', label: 'Moderate rain' },
+          65: { icon: 'rain', label: 'Heavy rain' },
+          66: { icon: 'sleet', label: 'Light freezing rain' },
+          67: { icon: 'sleet', label: 'Heavy freezing rain' },
+          71: { icon: 'snow', label: 'Slight snow fall' },
+          73: { icon: 'snow', label: 'Moderate snow fall' },
+          75: { icon: 'snow', label: 'Heavy snow fall' },
+          77: { icon: 'snow', label: 'Snow grains' },
+          80: { icon: 'showers-day', label: 'Slight rain showers' },
+          81: { icon: 'showers-day', label: 'Moderate rain showers' },
+          82: { icon: 'showers-day', label: 'Violent rain showers' },
+          85: { icon: 'snow-showers-day', label: 'Slight snow showers' },
+          86: { icon: 'snow-showers-day', label: 'Heavy snow showers' },
+          95: { icon: 'thunder-rain', label: 'Thunderstorm' },
+          96: { icon: 'thunder-showers-day', label: 'Thunderstorm with slight hail' },
+          99: { icon: 'thunder-showers-day', label: 'Thunderstorm with heavy hail' }
+        };
+        return map[code] || { icon: 'partly-cloudy-day', label: 'Unknown' };
+      }
+
+      async function fetchWeatherForCard(card) {
         const loc = card.dataset.location;
         const start = parseSmartDate(card.dataset.start);
         const end = parseSmartDate(card.dataset.end);
         if (!loc || !start) return;
 
-        // Multi-date query: date1/date2
-        const datePath = (end && end !== start) ? `${start}/${end}` : start;
-        const url = `https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/${encodeURIComponent(loc)}/${datePath}?unitGroup=us&key=${key}&contentType=json`;
+        const coords = await getCoordinates(loc);
+        if (!coords) return;
+
+        // Check if date is > 14 days in the future
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+        const startParts = start.split('-').map(Number);
+        const startDate = new Date(startParts[0], startParts[1] - 1, startParts[2]);
+        const diffDays = (startDate - now) / (1000 * 60 * 60 * 24);
+        
+        let isHistorical = diffDays > 14;
+        let data;
+
+        const shiftDate = (dateStr) => {
+            const p = dateStr.split('-').map(Number);
+            const d = new Date(p[0] - 1, p[1] - 1, p[2]);
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const dy = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${dy}`;
+        };
+
+        // Try forecast first if applicable
+        if (!isHistorical) {
+            try {
+                const forecastUrl = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&temperature_unit=fahrenheit&start_date=${start}&end_date=${end || start}`;
+                const res = await fetch(forecastUrl);
+                const forecastData = await res.json();
+                if (res.ok && forecastData.daily && forecastData.daily.time) {
+                    data = forecastData;
+                } else {
+                    console.warn(`Forecast for ${loc} failed or returned invalid data. Falling back to historical.`);
+                }
+            } catch (e) {
+                console.error(`Forecast fetch for ${loc} failed:`, e, 'Falling back to historical.');
+            }
+        }
+
+        // If forecast failed or was not applicable, use historical
+        if (!data) {
+            isHistorical = true; // Mark as historical for the UI note
+            try {
+                const historicalUrl = `https://archive-api.open-meteo.com/v1/archive?latitude=${coords.lat}&longitude=${coords.lon}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&temperature_unit=fahrenheit&start_date=${shiftDate(start)}&end_date=${shiftDate(end || start)}`;
+                const res = await fetch(historicalUrl);
+                const historicalData = await res.json();
+                if (res.ok && historicalData.daily && historicalData.daily.time) {
+                    data = historicalData;
+                }
+            } catch (e) {
+                console.error(`Historical fetch for ${loc} also failed:`, e);
+            }
+        }
+
+        if (!data) {
+            console.error(`All weather queries failed for ${loc}.`);
+            return;
+        }
 
         try {
-          const res = await fetch(url);
-          if (!res.ok) throw new Error('Weather API error: ' + res.status);
-          const data = await res.json();
-          if (!data.days) return;
+          const days = data.daily.time.map((t, i) => ({
+            datetime: (() => {
+              const d = new Date(startParts[0], startParts[1] - 1, startParts[2]);
+              d.setDate(d.getDate() + i);
+              const y = d.getFullYear();
+              const m = String(d.getMonth() + 1).padStart(2, '0');
+              const dy = String(d.getDate()).padStart(2, '0');
+              return `${y}-${m}-${dy}`;
+            })(),
+            tempmax: data.daily.temperature_2m_max[i],
+            tempmin: data.daily.temperature_2m_min[i],
+            ...getWmoInfo(data.daily.weathercode[i])
+          }));
 
-          if (data.days.length > 0) {
-            const maxT = Math.round(Math.max(...data.days.map(d => d.tempmax)));
-            const minT = Math.round(Math.min(...data.days.map(d => d.tempmin)));
+          if (days.length > 0) {
+            const maxHigh = Math.round(Math.max(...days.map(d => d.tempmax)));
+            const minHigh = Math.round(Math.min(...days.map(d => d.tempmax)));
             
-            const uniqueIcons = [...new Set(data.days.map(d => d.icon))];
+            const uniqueIcons = [...new Set(days.map(d => d.icon))];
             const iconsHtml = uniqueIcons.map(icon => 
               `<img src="https://raw.githubusercontent.com/visualcrossing/WeatherIcons/refs/heads/main/PNG/2nd%20Set%20-%20Color/${icon}.png" alt="${icon}" title="${icon}" class="weather-icon" style="width: 1.4em; height: 1.4em; vertical-align: middle;">`
             ).join('');
@@ -873,14 +956,29 @@
                 sumEl.style.color = 'var(--text)';
                 dateRangeEl.parentNode.insertBefore(sumEl, dateRangeEl.nextSibling);
               }
-              sumEl.innerHTML = `${iconsHtml} <b>${minT}°–${maxT}°</b>`;
+              const tempStr = minHigh === maxHigh ? `${maxHigh}°F` : `${minHigh}°F–${maxHigh}°F`;
+              sumEl.innerHTML = `${iconsHtml} <b>${tempStr}</b>`;
+
+              if (isHistorical) {
+                const meta = card.querySelector('.location-card-meta');
+                if (meta && !meta.querySelector('.historical-note')) {
+                  const note = document.createElement('div');
+                  note.className = 'historical-note';
+                  note.textContent = 'Based on historical data (last year)';
+                  note.style.fontSize = '0.85rem';
+                  note.style.fontStyle = 'italic';
+                  note.style.marginTop = '0.25rem';
+                  note.style.opacity = '0.8';
+                  meta.appendChild(note);
+                }
+              }
             }
           }
 
           const groups = card.querySelectorAll('.day-group-title');
           groups.forEach(title => {
             const tDate = parseSmartDate(title.dataset.date);
-            const dayData = data.days.find(d => d.datetime === tDate);
+            const dayData = days.find(d => d.datetime === tDate);
             if (dayData) {
               let badge = title.querySelector('.weather-badge');
               if (!badge) {
@@ -889,11 +987,11 @@
                 title.appendChild(badge);
               }
               const iconUrl = `https://raw.githubusercontent.com/visualcrossing/WeatherIcons/refs/heads/main/PNG/2nd%20Set%20-%20Color/${dayData.icon}.png`;
-              badge.innerHTML = `<img src="${iconUrl}" alt="${dayData.icon}" class="weather-icon" style="width: 1.4em; height: 1.4em; margin-right: 0.3em;"> ${Math.round(dayData.tempmax)}° / ${Math.round(dayData.tempmin)}° ${dayData.conditions}`;
+              badge.innerHTML = `<img src="${iconUrl}" alt="${dayData.icon}" class="weather-icon" style="width: 1.4em; height: 1.4em; margin-right: 0.3em;"> ${Math.round(dayData.tempmax)}°F / ${Math.round(dayData.tempmin)}°F ${dayData.label}`;
             }
           });
         } catch (e) {
-          console.error(e);
+          console.error('Error processing weather data:', e);
         }
       }
 
@@ -901,7 +999,6 @@
         const cards = document.querySelectorAll('.location-card');
         for (const card of cards) {
           await fetchWeatherForCard(card);
-          await new Promise(resolve => setTimeout(resolve, 50));
         }
       }
 
@@ -912,20 +1009,6 @@
       }
 
       btnParse.addEventListener('click', () => buildItinerary(csvInput.value));
-
-      apiKeyInput.addEventListener('input', () => {
-        const url = new URL(window.location);
-        const val = apiKeyInput.value.trim();
-        if (val) {
-          url.searchParams.set('key', val);
-        } else {
-          url.searchParams.delete('key');
-        }
-        window.history.replaceState({}, '', url);
-        btnWeather.style.display = '';
-      });
-
-      btnWeather.addEventListener('click', fetchAllWeather);
 
       btnFetch.addEventListener('click', async () => {
         const url = sheetUrl.value.trim();
