@@ -6,9 +6,26 @@
   <title>Travel Itinerary</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <style>
     :root {
+      --bg: #f0f2f5;
+      --surface: #ffffff;
+      --surface-hover: #f8f9fa;
+      --border: #e4e6eb;
+      --text: #1c1e21;
+      --text-muted: #65676b;
+      --accent: #b89115;
+      --accent-soft: rgba(184, 145, 21, 0.1);
+      --success: #2d8a6e;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --shadow: 0 4px 24px rgba(0,0,0,0.08);
+    }
+
+    [data-theme="dark"] {
       --bg: #0f0f0f;
       --surface: #1a1a1a;
       --surface-hover: #252525;
@@ -17,9 +34,6 @@
       --text-muted: #888;
       --accent: #c9a227;
       --accent-soft: rgba(201, 162, 39, 0.15);
-      --success: #2d8a6e;
-      --radius: 12px;
-      --radius-sm: 8px;
       --shadow: 0 4px 24px rgba(0,0,0,0.4);
     }
 
@@ -41,13 +55,13 @@
       max-width: 1200px;
       margin: 0 auto;
       padding: 2rem 1.5rem;
+      position: relative;
     }
 
     h1 {
-      font-family: 'Fraunces', serif;
       font-size: 1.75rem;
       font-weight: 700;
-      margin: 0 0 0.5rem;
+      margin: 0;
       letter-spacing: -0.02em;
     }
 
@@ -56,6 +70,49 @@
       margin: 0 0 2rem;
       font-size: 0.95rem;
     }
+
+    .header-row {
+      margin-bottom: 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+
+    .btn-icon {
+      position: absolute;
+      top: 2rem;
+      right: 1.5rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      width: 2.5rem;
+      height: 2.5rem;
+      border-radius: 50%;
+      padding: 0;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.3s ease;
+      overflow: hidden;
+    }
+
+    .btn-icon:hover {
+      background: var(--surface-hover);
+      border-color: var(--accent);
+    }
+
+    .btn-icon svg {
+      position: absolute;
+      transition: transform 0.4s ease, opacity 0.3s ease;
+    }
+
+    .icon-sun { transform: rotate(-90deg) scale(0); opacity: 0; }
+    .icon-moon { transform: rotate(0deg) scale(1); opacity: 1; }
+
+    [data-theme="dark"] .icon-sun { transform: rotate(0deg) scale(1); opacity: 1; }
+    [data-theme="dark"] .icon-moon { transform: rotate(90deg) scale(0); opacity: 0; }
 
     .input-section {
       background: var(--surface);
@@ -67,7 +124,6 @@
     }
 
     .input-section h2 {
-      font-family: 'Fraunces', serif;
       font-size: 1.1rem;
       font-weight: 600;
       margin: 0 0 1rem;
@@ -205,7 +261,6 @@
     }
 
     .itinerary-section > h2 {
-      font-family: 'Fraunces', serif;
       font-size: 1.25rem;
       margin: 0 0 1.5rem;
     }
@@ -226,7 +281,45 @@
     }
 
     .weather-icon {
+      filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.15));
+    }
+
+    [data-theme="dark"] .weather-icon {
       filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.8));
+    }
+
+    /* View controls */
+    .view-controls {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .view-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 0;
+      width: 2.5rem;
+      height: 2.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .view-btn:hover {
+      background: var(--surface-hover);
+      color: var(--text);
+    }
+
+    .view-btn.active {
+      background: var(--accent);
+      color: var(--bg);
+      border-color: var(--accent);
+      font-weight: 500;
     }
 
     /* List / card view */
@@ -235,6 +328,125 @@
     }
 
     .itinerary-list.visible {
+      display: block;
+    }
+
+    /* Calendar view */
+    .itinerary-calendar {
+      display: none;
+      overflow-x: auto;
+      padding-bottom: 1rem;
+    }
+
+    .itinerary-calendar.visible {
+      display: block;
+    }
+
+    .calendar-month {
+      margin-bottom: 2rem;
+      min-width: 700px; /* Ensure readable width on mobile */
+    }
+
+    .calendar-month-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      color: var(--text);
+      position: sticky;
+      left: 0;
+    }
+
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .calendar-header {
+      background: var(--surface-hover);
+      padding: 0.75rem 0.5rem;
+      text-align: center;
+      font-weight: 600;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+
+    .calendar-day {
+      background: var(--surface);
+      min-height: 140px;
+      padding: 0.5rem;
+      font-size: 0.9rem;
+    }
+
+    .calendar-day-number {
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    .calendar-day.empty {
+      background: var(--bg);
+    }
+
+    .calendar-event {
+      font-size: 0.8rem;
+      background: var(--accent-soft);
+      color: var(--accent);
+      padding: 3px 6px;
+      border-radius: 4px;
+      margin-bottom: 4px;
+      white-space: normal;
+      line-height: 1.3;
+    }
+
+    .calendar-event.location-pill {
+      background: var(--text);
+      color: var(--bg);
+      font-weight: 500;
+      margin-bottom: 6px;
+    }
+
+    .calendar-event.hotel-pill {
+      background: var(--surface-hover);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      font-style: italic;
+    }
+
+    .calendar-weather {
+      margin-top: 2px;
+      margin-bottom: 6px;
+      font-size: 0.8rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      color: var(--text-muted);
+    }
+    .calendar-weather:empty {
+      display: none;
+    }
+    .calendar-weather.historical {
+      opacity: 0.75;
+      font-style: italic;
+    }
+
+    /* Map view */
+    .itinerary-map {
+      display: none;
+      height: 500px;
+      width: 100%;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      z-index: 1;
+    }
+
+    .itinerary-map.visible {
       display: block;
     }
 
@@ -274,7 +486,6 @@
     }
 
     .location-card-name {
-      font-family: 'Fraunces', serif;
       font-size: 1.25rem;
       font-weight: 600;
       color: var(--text);
@@ -313,7 +524,6 @@
     }
 
     .day-group-title {
-      font-family: 'Fraunces', serif;
       font-size: 1.1rem;
       color: var(--accent);
       margin-bottom: 0.75rem;
@@ -376,7 +586,13 @@
 </head>
 <body>
   <div class="page">
-    <h1>Travel Itinerary</h1>
+    <div class="header-row">
+      <h1>Travel Itinerary</h1>
+      <button id="theme-toggle" class="btn-icon" aria-label="Toggle theme">
+        <svg class="icon-sun" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <svg class="icon-moon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
 
     <section class="input-section">
       <h2>Import data</h2>
@@ -403,8 +619,22 @@
     </section>
 
     <section id="itinerary-section" class="itinerary-section">
-      <h2>Your itinerary</h2>
-      <div id="itinerary-list" class="itinerary-list visible">
+      <div class="view-controls">
+        <button type="button" class="view-btn" data-view="calendar" title="Calendar View" aria-label="Calendar View">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+        </button>
+        <button type="button" class="view-btn" data-view="list" title="List View" aria-label="List View">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+        </button>
+        <button type="button" class="view-btn" data-view="map" title="Map View" aria-label="Map View">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>
+        </button>
+      </div>
+
+      <div id="itinerary-map" class="itinerary-map"></div>
+      <div id="itinerary-calendar" class="itinerary-calendar"></div>
+
+      <div id="itinerary-list" class="itinerary-list">
         <div id="list-content"></div>
       </div>
     </section>
@@ -427,8 +657,41 @@
       const listContent = document.getElementById('list-content');
       const tabs = document.querySelectorAll('.tab');
       const panels = document.querySelectorAll('.input-panel');
+      const viewBtns = document.querySelectorAll('.view-btn');
+      const themeToggle = document.getElementById('theme-toggle');
 
       let parsed = null; // { locations, dates, rows: [ { time, cells[] } ] }
+      let map = null;
+      let mapLayerGroup = null;
+      let mapTileLayer = null;
+      let polyline = null;
+      const mapPoints = []; // Array of {lat, lon}
+      const mapMarkers = {}; // Object to track unique locations
+
+      // Theme Logic
+      let currentTheme = localStorage.getItem('theme') || 'light';
+      const htmlEl = document.documentElement;
+
+      function updateTheme(theme) {
+        currentTheme = theme;
+        htmlEl.setAttribute('data-theme', theme);
+        localStorage.setItem('theme', theme);
+        if (mapTileLayer) {
+          const isLight = theme === 'light';
+          const url = isLight 
+            ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png' 
+            : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+          mapTileLayer.setUrl(url);
+        }
+      }
+
+      // Initialize theme
+      if (currentTheme) updateTheme(currentTheme);
+
+      themeToggle.addEventListener('click', () => {
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        updateTheme(newTheme);
+      });
 
       function showError(msg) {
         errorMsg.textContent = msg || '';
@@ -436,6 +699,12 @@
       }
 
       function parseCSV(text) {
+        // Detect delimiter from the first line. Default to tab for pasted data from spreadsheets.
+        const firstLine = text.slice(0, text.indexOf('\n'));
+        const tabCount = (firstLine.match(/\t/g) || []).length;
+        const commaCount = (firstLine.match(/,/g) || []).length;
+        const delimiter = commaCount > tabCount ? ',' : '\t';
+
         const rows = [];
         let current = '';
         let inQuotes = false;
@@ -462,7 +731,7 @@
             pushRow();
             continue;
           }
-          if (c === '\t' || c === ',') {
+          if (c === delimiter) {
             pushCell();
             continue;
           }
@@ -474,42 +743,41 @@
       }
 
       function looksLikeTime(str) {
-        const s = (str || '').toString().trim();
+        const s = (str || '').trim();
         return /^\d{1,2}(?::\d{2})?\s*(am|pm)?$/i.test(s);
       }
 
       function looksLikeHotelHeader(str) {
-        const s = (str || '').toString().trim();
+        const s = (str || '').trim();
         return /\bhotel\b/i.test(s);
       }
 
       function parseSheetRows(rows) {
         if (!rows.length) return null;
         const first = rows[0];
-        const locations = first.map((c, i) => (i === 0 ? (c || 'Time') : (c || `Location ${i}`)));
-        const dates = rows[1] ? rows[1].map((c, i) => (i === 0 ? '' : (c || ''))) : first.map(() => '');
+        const locations = first.map((c, i) => (i === 0 ? getTextContent(c || 'Time') : getTextContent(c || `Location ${i}`)));
+        const dates = rows[1] ? rows[1].map((c, i) => (i === 0 ? '' : getTextContent(c || ''))) : first.map(() => '');
         const dataRows = rows.slice(2);
         let hotelCells = null;
         const data = dataRows
           .filter(row => {
-            if (looksLikeHotelHeader(row[0])) {
+            if (looksLikeHotelHeader(getTextContent(row[0]))) {
               hotelCells = row.slice(0, locations.length);
               while (hotelCells.length < locations.length) hotelCells.push('');
               return false;
             }
-            return looksLikeTime(row[0]);
+            return looksLikeTime(getTextContent(row[0]));
           })
           .map(row => {
-            const time = (row[0] || '').toString().trim();
+            const time = getTextContent(row[0] || '').trim();
             const cells = row.slice(1);
             return { time, cells };
           });
         return { locations, dates, rows: data, hotelCells };
       }
 
-      function buildItinerary(csvText, fromUrl = false) {
+      function buildItineraryFromRows(rows, fromUrl = false, csvTextForUrl = '') {
         showError('');
-        const rows = parseCSV(csvText);
         if (!rows.length) {
           showError('No data found. Paste your sheet content (first row = locations, second = dates, first column = times).');
           return;
@@ -524,15 +792,25 @@
         emptyState.style.display = 'none';
         inputSection.style.display = 'none';
 
+        // Switch to calendar view by default
+        document.querySelector('.view-btn[data-view="calendar"]').click();
+
+        initMap();
         fetchAllWeather();
 
-        if (!fromUrl) {
-          updateUrlWithData(csvText);
+        if (!fromUrl && csvTextForUrl) {
+          updateUrlWithData(csvTextForUrl);
         }
+      }
+
+      function buildItinerary(csvText, fromUrl = false) {
+        const rows = parseCSV(csvText);
+        buildItineraryFromRows(rows, fromUrl, csvText);
       }
 
       function render() {
         if (!parsed) return;
+        resetMapData();
         const { locations, dates, rows, hotelCells } = parsed;
 
         // Valid day columns: must have both date and location (non-empty after trim).
@@ -702,7 +980,7 @@
               eventCard.className = 'event-card';
               eventCard.innerHTML = `
                 <span class="event-time">${escapeHtml(time)}</span>
-                <span class="event-content">${escapeHtml(content)}</span>
+                <span class="event-content">${linkifyAndSanitize(content)}</span>
               `;
               dayDiv.appendChild(eventCard);
             });
@@ -711,6 +989,238 @@
           cardEl.appendChild(daysContainer);
           listContent.appendChild(cardEl);
         });
+        renderCalendar();
+      }
+
+      function renderCalendar() {
+        const cal = document.getElementById('itinerary-calendar');
+        cal.innerHTML = '';
+        if (!parsed) return;
+        const { locations, dates, rows } = parsed;
+
+        // Backfill hotel logic for calendar (similar to render/list view)
+        let effectiveHotel = [];
+        if (parsed.hotelCells && parsed.locations.length) {
+          const pad = Array(parsed.locations.length).fill('');
+          const cells = parsed.hotelCells.length >= parsed.locations.length ? parsed.hotelCells : [...parsed.hotelCells, ...pad.slice(parsed.hotelCells.length)];
+          effectiveHotel = cells.map((c, i) => (i === 0 ? '' : (c || '').trim()));
+          for (let i = 1; i < effectiveHotel.length; i++) {
+            if (!effectiveHotel[i]) effectiveHotel[i] = effectiveHotel[i - 1] || '';
+          }
+          // Clear hotel if last col has no explicit hotel? 
+          // (Matching list logic: "no hotel unless the last valid column has an explicit hotel")
+          // For calendar, we map daily. If effectiveHotel[i] exists, that day has a hotel.
+          // We'll handle the "last day" logic inside the mapping loop if needed, 
+          // but generally if effectiveHotel has a value, it applies to that night.
+        }
+
+        const eventsByYmd = {};
+        let minTs = Infinity;
+        let maxTs = -Infinity;
+
+        // 1. Map data from columns to dates
+        for (let i = 1; i < locations.length; i++) {
+          const rawDate = (dates[i] || '').trim();
+          const loc = (locations[i] || '').trim();
+          if (!rawDate || !loc) continue;
+          
+          const ymd = parseSmartDate(rawDate); // "YYYY-MM-DD"
+          if (!ymd) continue;
+          
+          if (!eventsByYmd[ymd]) eventsByYmd[ymd] = { locs: new Set(), events: [], hotel: null };
+          eventsByYmd[ymd].locs.add(loc);
+
+          if (effectiveHotel[i]) {
+            eventsByYmd[ymd].hotel = effectiveHotel[i];
+          }
+          
+          rows.forEach(r => {
+            const content = (r.cells[i-1] || '').trim();
+            if (content) {
+              eventsByYmd[ymd].events.push({ time: r.time, content });
+            }
+          });
+
+          const parts = ymd.split('-').map(Number);
+          const d = new Date(parts[0], parts[1]-1, parts[2]);
+          const ts = d.getTime();
+          if (ts < minTs) minTs = ts;
+          if (ts > maxTs) maxTs = ts;
+        }
+
+        if (minTs === Infinity) return;
+
+        // 2. Generate Continuous Grid
+        // Start from Sunday of the first week
+        const startDate = new Date(minTs);
+        startDate.setDate(startDate.getDate() - startDate.getDay());
+
+        // We'll iterate until we pass maxTs and finish the week
+        const wrapper = document.createElement('div');
+        wrapper.className = 'calendar-month'; // Use existing class for container styling
+
+        const monthTitle = document.createElement('div');
+        monthTitle.className = 'calendar-month-title';
+        const startM = new Date(minTs).toLocaleDateString('default', { month: 'long', year: 'numeric' });
+        const endM = new Date(maxTs).toLocaleDateString('default', { month: 'long', year: 'numeric' });
+        monthTitle.textContent = startM === endM ? startM : `${startM} – ${endM}`;
+        wrapper.appendChild(monthTitle);
+
+        const grid = document.createElement('div');
+        grid.className = 'calendar-grid';
+
+        // Headers
+        ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach(d => {
+          const h = document.createElement('div');
+          h.className = 'calendar-header';
+          h.textContent = d;
+          grid.appendChild(h);
+        });
+
+        let curr = new Date(startDate);
+        let isFirstVisibleDay = true;
+        let loops = 0;
+
+        while (loops < 1000) { // Safety break
+          // Build a week
+          const week = [];
+          for (let i = 0; i < 7; i++) {
+            const ymd = `${curr.getFullYear()}-${String(curr.getMonth()+1).padStart(2,'0')}-${String(curr.getDate()).padStart(2,'0')}`;
+            week.push({
+              date: new Date(curr),
+              ymd: ymd,
+              dayNum: curr.getDate(),
+              data: eventsByYmd[ymd]
+            });
+            curr.setDate(curr.getDate() + 1);
+          }
+
+          // Check if we are done (past maxTs and empty week)
+          const weekStartTs = week[0].date.getTime();
+          // data check: locs, events, hotel
+          const hasData = week.some(d => d.data && (d.data.locs.size > 0 || d.data.events.length > 0 || d.data.hotel));
+          
+          if (weekStartTs > maxTs && !hasData) {
+            break;
+          }
+
+          if (hasData) {
+            week.forEach(d => {
+                const cell = document.createElement('div');
+                cell.className = 'calendar-day';
+                cell.dataset.date = d.ymd;
+                
+                const num = document.createElement('div');
+                num.className = 'calendar-day-number';
+                
+                // Show Month Name if 1st of month OR first visible day
+                if (d.dayNum === 1 || isFirstVisibleDay) {
+                  num.textContent = d.date.toLocaleDateString('default', { month: 'short', day: 'numeric' });
+                  num.style.fontWeight = '700';
+                  num.style.color = 'var(--accent)';
+                  isFirstVisibleDay = false;
+                } else {
+                  num.textContent = d.dayNum;
+                }
+                cell.appendChild(num);
+
+                if (d.data) {
+                  // Locations
+                  d.data.locs.forEach(l => {
+                    const pill = document.createElement('div');
+                    pill.className = 'calendar-event location-pill';
+                    pill.textContent = l;
+                    cell.appendChild(pill);
+                  });
+
+                  // Weather placeholder
+                  const wDiv = document.createElement('div');
+                  wDiv.className = 'calendar-weather';
+                  cell.appendChild(wDiv);
+
+                  // Hotel
+                  if (d.data.hotel) {
+                    const hotelPill = document.createElement('div');
+                    hotelPill.className = 'calendar-event hotel-pill';
+                    hotelPill.textContent = `🏨 ${d.data.hotel}`;
+                    hotelPill.style.cursor = 'pointer';
+                    hotelPill.title = 'Open in Google Maps';
+                    hotelPill.onclick = (e) => {
+                      e.stopPropagation();
+                      let query = d.data.hotel;
+                      if (d.data.locs && d.data.locs.size > 0) {
+                        query += ` ${Array.from(d.data.locs)[0]}`;
+                      }
+                      window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`, '_blank');
+                    };
+                    cell.appendChild(hotelPill);
+                  }
+
+                  // Events
+                  d.data.events.forEach(ev => {
+                      const pill = document.createElement('div');
+                      pill.className = 'calendar-event';
+                      const timePart = ev.time ? `${ev.time} ` : '';
+                      pill.innerHTML = linkifyAndSanitize(timePart + ev.content);
+                      pill.title = getTextContent(timePart + ev.content);
+                      cell.appendChild(pill);
+                  });
+                }
+                grid.appendChild(cell);
+            });
+          }
+          loops++;
+        }
+
+        wrapper.appendChild(grid);
+        cal.appendChild(wrapper);
+      }
+
+      function initMap() {
+        if (map) return;
+        // Initialize map
+        map = L.map('itinerary-map').setView([20, 0], 2);
+        
+        const isLight = currentTheme === 'light';
+        const url = isLight ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png' : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+        
+        mapTileLayer = L.tileLayer(url, {
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+          maxZoom: 18
+        }).addTo(map);
+        mapLayerGroup = L.layerGroup().addTo(map);
+      }
+
+      function resetMapData() {
+        if (!map) return;
+        mapLayerGroup.clearLayers();
+        mapPoints.length = 0;
+        for (const key in mapMarkers) delete mapMarkers[key];
+        polyline = L.polyline([], { color: 'var(--accent)', weight: 3 }).addTo(mapLayerGroup);
+      }
+
+      function addMapLocation(name, lat, lon) {
+        if (!map) return;
+        
+        // Add marker if this specific location hasn't been marked yet
+        if (!mapMarkers[name]) {
+          const marker = L.marker([lat, lon]).addTo(mapLayerGroup);
+          marker.bindPopup(`<b>${escapeHtml(name)}</b>`);
+          mapMarkers[name] = marker;
+        }
+
+        // Add to polyline path (allows duplicate locations to show route)
+        mapPoints.push([lat, lon]);
+        if (polyline) {
+          polyline.setLatLngs(mapPoints);
+        }
+
+        // Fit bounds if we have points
+        if (mapPoints.length > 0) {
+          const bounds = L.latLngBounds(mapPoints);
+          // Add some padding
+          map.fitBounds(bounds, { padding: [50, 50], maxZoom: 12 });
+        }
       }
 
       async function updateUrlWithData(csvText) {
@@ -719,9 +1229,15 @@
           return;
         }
         try {
-          const stream = new Blob([new TextEncoder().encode(csvText)]).stream().pipeThrough(new CompressionStream('gzip'));
+          const stream = new Blob([new TextEncoder().encode(csvText)]).stream().pipeThrough(new CompressionStream('deflate'));
           const compressed = await new Response(stream).arrayBuffer();
-          const base64 = btoa(String.fromCharCode.apply(null, new Uint8Array(compressed)));
+          
+          const bytes = new Uint8Array(compressed);
+          let binaryString = '';
+          for (let i = 0; i < bytes.length; i += 8192) {
+            binaryString += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+          }
+          const base64 = btoa(binaryString);
           const urlSafeBase64 = base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
           const url = new URL(window.location);
@@ -748,8 +1264,15 @@
               bytes[i] = binaryString.charCodeAt(i);
             }
 
-            const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
-            const decompressed = await new Response(stream).text();
+            let decompressed;
+            try {
+              const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'));
+              decompressed = await new Response(stream).text();
+            } catch (e) {
+              // Fallback for legacy gzip-compressed URLs
+              const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+              decompressed = await new Response(stream).text();
+            }
             buildItinerary(decompressed, true);
           } catch (e) {
             console.error('Failed to decompress data from URL:', e);
@@ -806,14 +1329,13 @@
 
       async function getCoordinates(location) {
         try {
-          // Nominatim requires a user-agent, but browser fetch handles standard headers.
-          // We use the search endpoint to find lat/lon.
-          const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1`;
+          // Use Open-Meteo Geocoding API to avoid Nominatim's strict Referer/User-Agent policies
+          const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1&language=en&format=json`;
           const res = await fetch(url);
           if (!res.ok) return null;
           const data = await res.json();
-          if (data && data.length > 0) {
-            return { lat: data[0].lat, lon: data[0].lon };
+          if (data && data.results && data.results.length > 0) {
+            return { lat: data.results[0].latitude, lon: data.results[0].longitude };
           }
         } catch (e) {
           console.error('Geocoding error:', e);
@@ -864,75 +1386,93 @@
         const coords = await getCoordinates(loc);
         if (!coords) return;
 
-        // Check if date is > 14 days in the future
-        const now = new Date();
-        now.setHours(0, 0, 0, 0);
+        // Update map immediately with coordinates
+        addMapLocation(loc, coords.lat, coords.lon);
+
+        // Generate dates to fetch
+        const daysToFetch = [];
         const startParts = start.split('-').map(Number);
         const startDate = new Date(startParts[0], startParts[1] - 1, startParts[2]);
-        const diffDays = (startDate - now) / (1000 * 60 * 60 * 24);
+        const endDate = end ? new Date(end.split('-')[0], end.split('-')[1] - 1, end.split('-')[2]) : new Date(startDate);
         
-        let isHistorical = diffDays > 14;
-        let data;
+        let curr = new Date(startDate);
+        while (curr <= endDate) {
+            const y = curr.getFullYear();
+            const m = String(curr.getMonth() + 1).padStart(2, '0');
+            const d = String(curr.getDate()).padStart(2, '0');
+            daysToFetch.push(`${y}-${m}-${d}`);
+            curr.setDate(curr.getDate() + 1);
+        }
 
-        const shiftDate = (dateStr) => {
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+        
+        const days = [];
+
+        // Fetch per day
+        for (const dateStr of daysToFetch) {
             const p = dateStr.split('-').map(Number);
-            const d = new Date(p[0] - 1, p[1] - 1, p[2]);
-            const y = d.getFullYear();
-            const m = String(d.getMonth() + 1).padStart(2, '0');
-            const dy = String(d.getDate()).padStart(2, '0');
-            return `${y}-${m}-${dy}`;
-        };
+            const dObj = new Date(p[0], p[1] - 1, p[2]);
+            const diffDays = (dObj - now) / (1000 * 60 * 60 * 24);
+            let isDayHistorical = diffDays > 14;
+            let dayData = null;
 
-        // Try forecast first if applicable
-        if (!isHistorical) {
+            // Try Forecast
+            if (!isDayHistorical) {
             try {
-                const forecastUrl = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&temperature_unit=fahrenheit&start_date=${start}&end_date=${end || start}`;
-                const res = await fetch(forecastUrl);
-                const forecastData = await res.json();
-                if (res.ok && forecastData.daily && forecastData.daily.time) {
-                    data = forecastData;
-                } else {
-                    console.warn(`Forecast for ${loc} failed or returned invalid data. Falling back to historical.`);
+                const url = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&temperature_unit=fahrenheit&start_date=${dateStr}&end_date=${dateStr}`;
+                const res = await fetch(url);
+                if (res.ok) {
+                    const json = await res.json();
+                    if (json.daily && json.daily.time && json.daily.time.length > 0) {
+                        dayData = {
+                            datetime: dateStr,
+                            tempmax: json.daily.temperature_2m_max[0],
+                            tempmin: json.daily.temperature_2m_min[0],
+                            ...getWmoInfo(json.daily.weathercode[0]),
+                            isHistorical: false
+                        };
+                    }
                 }
             } catch (e) {
-                console.error(`Forecast fetch for ${loc} failed:`, e, 'Falling back to historical.');
+                // Ignore, fallback to historical
             }
-        }
+            }
 
-        // If forecast failed or was not applicable, use historical
-        if (!data) {
-            isHistorical = true; // Mark as historical for the UI note
-            try {
-                const historicalUrl = `https://archive-api.open-meteo.com/v1/archive?latitude=${coords.lat}&longitude=${coords.lon}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&temperature_unit=fahrenheit&start_date=${shiftDate(start)}&end_date=${shiftDate(end || start)}`;
-                const res = await fetch(historicalUrl);
-                const historicalData = await res.json();
-                if (res.ok && historicalData.daily && historicalData.daily.time) {
-                    data = historicalData;
+            // Fallback to Historical
+            if (!dayData) {
+                try {
+                    const prevDate = new Date(p[0] - 1, p[1] - 1, p[2]);
+                    const py = prevDate.getFullYear();
+                    const pm = String(prevDate.getMonth() + 1).padStart(2, '0');
+                    const pd = String(prevDate.getDate()).padStart(2, '0');
+                    const prevDateStr = `${py}-${pm}-${pd}`;
+                    
+                    const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${coords.lat}&longitude=${coords.lon}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&temperature_unit=fahrenheit&start_date=${prevDateStr}&end_date=${prevDateStr}`;
+                    const res = await fetch(url);
+                    if (res.ok) {
+                        const json = await res.json();
+                        if (json.daily && json.daily.time && json.daily.time.length > 0) {
+                            dayData = {
+                                datetime: dateStr,
+                                tempmax: json.daily.temperature_2m_max[0],
+                                tempmin: json.daily.temperature_2m_min[0],
+                                ...getWmoInfo(json.daily.weathercode[0]),
+                                isHistorical: true
+                            };
+                        }
+                    }
+                } catch (e) {
+                    console.error('Historical fetch failed', e);
                 }
-            } catch (e) {
-                console.error(`Historical fetch for ${loc} also failed:`, e);
             }
-        }
 
-        if (!data) {
-            console.error(`All weather queries failed for ${loc}.`);
-            return;
+            if (dayData) {
+                days.push(dayData);
+            }
         }
 
         try {
-          const days = data.daily.time.map((t, i) => ({
-            datetime: (() => {
-              const d = new Date(startParts[0], startParts[1] - 1, startParts[2]);
-              d.setDate(d.getDate() + i);
-              const y = d.getFullYear();
-              const m = String(d.getMonth() + 1).padStart(2, '0');
-              const dy = String(d.getDate()).padStart(2, '0');
-              return `${y}-${m}-${dy}`;
-            })(),
-            tempmax: data.daily.temperature_2m_max[i],
-            tempmin: data.daily.temperature_2m_min[i],
-            ...getWmoInfo(data.daily.weathercode[i])
-          }));
 
           if (days.length > 0) {
             const maxHigh = Math.round(Math.max(...days.map(d => d.tempmax)));
@@ -959,12 +1499,12 @@
               const tempStr = minHigh === maxHigh ? `${maxHigh}°F` : `${minHigh}°F–${maxHigh}°F`;
               sumEl.innerHTML = `${iconsHtml} <b>${tempStr}</b>`;
 
-              if (isHistorical) {
+              if (days.some(d => d.isHistorical)) {
                 const meta = card.querySelector('.location-card-meta');
                 if (meta && !meta.querySelector('.historical-note')) {
                   const note = document.createElement('div');
                   note.className = 'historical-note';
-                  note.textContent = 'Based on historical data (last year)';
+                  note.textContent = 'Includes historical data (last year)';
                   note.style.fontSize = '0.85rem';
                   note.style.fontStyle = 'italic';
                   note.style.marginTop = '0.25rem';
@@ -990,6 +1530,40 @@
               badge.innerHTML = `<img src="${iconUrl}" alt="${dayData.icon}" class="weather-icon" style="width: 1.4em; height: 1.4em; margin-right: 0.3em;"> ${Math.round(dayData.tempmax)}°F / ${Math.round(dayData.tempmin)}°F ${dayData.label}`;
             }
           });
+
+          // Update Calendar View cells
+          if (days.length > 0) {
+            days.forEach(dayData => {
+              const calCell = document.querySelector(`.calendar-day[data-date="${dayData.datetime}"]`);
+              if (calCell) {
+                let wDiv = calCell.querySelector('.calendar-weather');
+                if (!wDiv) {
+                  wDiv = document.createElement('div');
+                  wDiv.className = 'calendar-weather';
+                  const hotel = calCell.querySelector('.hotel-pill');
+                  if (hotel) {
+                    calCell.insertBefore(wDiv, hotel);
+                  } else {
+                    const firstEvent = calCell.querySelector('.calendar-event:not(.location-pill)');
+                    if (firstEvent) calCell.insertBefore(wDiv, firstEvent);
+                    else calCell.appendChild(wDiv);
+                  }
+                }
+                
+                if (!wDiv.innerHTML) {
+                const iconUrl = `https://raw.githubusercontent.com/visualcrossing/WeatherIcons/refs/heads/main/PNG/2nd%20Set%20-%20Color/${dayData.icon}.png`;
+                const histIcon = dayData.isHistorical ? '<span title="Historical data" style="margin-left:3px; cursor:help;">🕒</span>' : '';
+                wDiv.title = dayData.label;
+                wDiv.innerHTML = `
+                  <img src="${iconUrl}" class="weather-icon" style="width:1.2em; height:1.2em;">
+                  <span>${Math.round(dayData.tempmax)}° / ${Math.round(dayData.tempmin)}°${histIcon}</span>
+                `;
+                if (dayData.isHistorical) wDiv.classList.add('historical');
+                }
+              }
+            });
+          }
+
         } catch (e) {
           console.error('Error processing weather data:', e);
         }
@@ -1006,6 +1580,25 @@
         const div = document.createElement('div');
         div.textContent = s;
         return div.innerHTML;
+      }
+
+      function getTextContent(htmlStr) {
+        const div = document.createElement('div');
+        div.innerHTML = htmlStr;
+        return div.textContent || '';
+      }
+
+      function linkifyAndSanitize(str) {
+        const div = document.createElement('div');
+        div.innerHTML = str;
+        return Array.from(div.childNodes).map(node => {
+            if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'A' && node.getAttribute('href')) {
+                node.setAttribute('target', '_blank');
+                node.setAttribute('rel', 'noopener noreferrer');
+                return node.outerHTML;
+            }
+            return escapeHtml(node.textContent);
+        }).join('');
       }
 
       btnParse.addEventListener('click', () => buildItinerary(csvInput.value));
@@ -1027,6 +1620,64 @@
         }
       });
 
+      csvInput.addEventListener('paste', (event) => {
+        const html = (event.clipboardData || window.clipboardData).getData('text/html');
+        if (!html || !html.includes('<table')) {
+            return; // Let default paste happen
+        }
+
+        event.preventDefault();
+        
+        const div = document.createElement('div');
+        div.innerHTML = html;
+        const table = div.querySelector('table');
+        if (!table) {
+            const text = (event.clipboardData || window.clipboardData).getData('text/plain');
+            csvInput.value = text;
+            return;
+        }
+
+        const grid = [];
+        const tableRows = table.querySelectorAll('tr');
+        tableRows.forEach((row, rowIndex) => {
+            if (!grid[rowIndex]) grid[rowIndex] = [];
+            const cells = row.querySelectorAll('td, th');
+            let colIndex = 0;
+            cells.forEach(cell => {
+                while (grid[rowIndex][colIndex] !== undefined) colIndex++;
+                const htmlContent = cell.innerHTML;
+                const colspan = parseInt(cell.getAttribute('colspan') || '1', 10);
+                const rowspan = parseInt(cell.getAttribute('rowspan') || '1', 10);
+                for (let r = 0; r < rowspan; r++) {
+                    const targetRow = rowIndex + r;
+                    if (!grid[targetRow]) grid[targetRow] = [];
+                    for (let c = 0; c < colspan; c++) {
+                        grid[targetRow][colIndex + c] = htmlContent;
+                    }
+                }
+            });
+        });
+
+        const maxCols = grid.reduce((max, row) => Math.max(max, row ? row.length : 0), 0);
+        const rowsWithHtml = grid.map(row => {
+            const newRow = [];
+            for (let i = 0; i < maxCols; i++) newRow[i] = (row && row[i] !== undefined) ? row[i] : '';
+            return newRow;
+        });
+
+        const toCsvValue = (val) => {
+            let v = (val || '').toString();
+            if (/[\t\n\r"]/.test(v)) {
+                return '"' + v.replace(/"/g, '""') + '"';
+            }
+            return v;
+        };
+
+        const csvTextForUrl = rowsWithHtml.map(row => row.map(toCsvValue).join('\t')).join('\n');
+        csvInput.value = csvTextForUrl;
+        buildItineraryFromRows(rowsWithHtml, false, csvTextForUrl);
+      });
+
       tabs.forEach(tab => {
         tab.addEventListener('click', () => {
           const id = tab.dataset.tab;
@@ -1036,6 +1687,36 @@
           });
           tab.classList.add('active');
           showError('');
+        });
+      });
+
+      // View toggles
+      viewBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const view = btn.dataset.view;
+          viewBtns.forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+
+          if (view === 'map') {
+            document.getElementById('itinerary-list').classList.remove('visible');
+            document.getElementById('itinerary-calendar').classList.remove('visible');
+            document.getElementById('itinerary-map').classList.add('visible');
+            if (map) {
+              map.invalidateSize();
+              if (mapPoints.length > 0) {
+                const bounds = L.latLngBounds(mapPoints);
+                map.fitBounds(bounds, { padding: [50, 50], maxZoom: 12 });
+              }
+            }
+          } else if (view === 'calendar') {
+            document.getElementById('itinerary-list').classList.remove('visible');
+            document.getElementById('itinerary-map').classList.remove('visible');
+            document.getElementById('itinerary-calendar').classList.add('visible');
+          } else {
+            document.getElementById('itinerary-map').classList.remove('visible');
+            document.getElementById('itinerary-calendar').classList.remove('visible');
+            document.getElementById('itinerary-list').classList.add('visible');
+          }
         });
       });
 
