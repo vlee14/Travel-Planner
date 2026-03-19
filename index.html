@@ -79,6 +79,11 @@
       margin-bottom: 1.5rem;
     }
 
+    .header-actions {
+      display: flex;
+      gap: 0.5rem;
+    }
+
     .btn-icon {
       position: absolute;
       top: 2rem;
@@ -96,6 +101,7 @@
       justify-content: center;
       transition: all 0.3s ease;
       overflow: hidden;
+      position: relative;
     }
 
     .btn-icon:hover {
@@ -402,6 +408,7 @@
       margin-bottom: 4px;
       white-space: normal;
       line-height: 1.3;
+      white-space: pre-wrap;
     }
 
     .calendar-event.location-pill {
@@ -557,6 +564,8 @@
 
     .event-content {
       flex: 1;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
 
     .error-msg {
@@ -588,10 +597,15 @@
   <div class="page">
     <div class="header-row">
       <h1>Travel Itinerary</h1>
-      <button id="theme-toggle" class="btn-icon" aria-label="Toggle theme">
-        <svg class="icon-sun" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-        <svg class="icon-moon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-      </button>
+      <div class="header-actions">
+        <button id="share-btn" class="btn-icon" title="Copy shareable link" aria-label="Copy shareable link" style="display: none;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>
+        </button>
+        <button id="theme-toggle" class="btn-icon" aria-label="Toggle theme">
+          <svg class="icon-sun" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <svg class="icon-moon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+      </div>
     </div>
 
     <section class="input-section">
@@ -659,6 +673,7 @@
       const panels = document.querySelectorAll('.input-panel');
       const viewBtns = document.querySelectorAll('.view-btn');
       const themeToggle = document.getElementById('theme-toggle');
+      const shareBtn = document.getElementById('share-btn');
 
       let parsed = null; // { locations, dates, rows: [ { time, cells[] } ] }
       let map = null;
@@ -791,9 +806,14 @@
         itinerarySection.classList.add('visible');
         emptyState.style.display = 'none';
         inputSection.style.display = 'none';
+        shareBtn.style.display = 'flex';
 
-        // Switch to calendar view by default
-        document.querySelector('.view-btn[data-view="calendar"]').click();
+        // Switch to calendar view by default, or list view on small screens
+        if (window.innerWidth < 768) {
+          document.querySelector('.view-btn[data-view="list"]').click();
+        } else {
+          document.querySelector('.view-btn[data-view="calendar"]').click();
+        }
 
         initMap();
         fetchAllWeather();
@@ -1317,7 +1337,7 @@
         const match = s.match(/^([a-zA-Z]{3,})\s+(\d{1,2})$/i);
         if (match) {
           d = new Date(`${match[1]} ${match[2]}, ${now.getFullYear()}`);
-        } else if (!isNaN(d.getTime()) && d.getFullYear() === 2001) {
+        } else if (!isNaN(d.getTime()) && d.getFullYear() < 2020) {
           d.setFullYear(now.getFullYear());
         }
         if (isNaN(d.getTime())) return null;
@@ -1377,7 +1397,7 @@
         return map[code] || { icon: 'partly-cloudy-day', label: 'Unknown' };
       }
 
-      async function fetchWeatherForCard(card) {
+      async function fetchCardWeatherData(card) {
         const loc = card.dataset.location;
         const start = parseSmartDate(card.dataset.start);
         const end = parseSmartDate(card.dataset.end);
@@ -1472,8 +1492,11 @@
             }
         }
 
-        try {
+        return days;
+      }
 
+      function renderCardWeather(card, days) {
+        try {
           if (days.length > 0) {
             const maxHigh = Math.round(Math.max(...days.map(d => d.tempmax)));
             const minHigh = Math.round(Math.min(...days.map(d => d.tempmax)));
@@ -1571,8 +1594,13 @@
 
       async function fetchAllWeather() {
         const cards = document.querySelectorAll('.location-card');
+        const results = [];
         for (const card of cards) {
-          await fetchWeatherForCard(card);
+          const days = await fetchCardWeatherData(card);
+          results.push({ card, days });
+        }
+        for (const { card, days } of results) {
+          if (days) renderCardWeather(card, days);
         }
       }
 
@@ -1591,15 +1619,87 @@
       function linkifyAndSanitize(str) {
         const div = document.createElement('div');
         div.innerHTML = str;
-        return Array.from(div.childNodes).map(node => {
-            if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'A' && node.getAttribute('href')) {
-                node.setAttribute('target', '_blank');
-                node.setAttribute('rel', 'noopener noreferrer');
-                return node.outerHTML;
+        
+        function walk(node) {
+            if (node.nodeType === Node.TEXT_NODE) {
+                return escapeHtml(node.textContent);
             }
-            return escapeHtml(node.textContent);
-        }).join('');
+            if (node.nodeType === Node.ELEMENT_NODE) {
+                if (node.tagName === 'A' && node.hasAttribute('href')) {
+                    const a = document.createElement('a');
+                    a.href = node.getAttribute('href');
+                    a.target = '_blank';
+                    a.rel = 'noopener noreferrer';
+                    a.textContent = node.textContent;
+                    return a.outerHTML;
+                }
+                return Array.from(node.childNodes).map(walk).join('');
+            }
+            return '';
+        }
+        return Array.from(div.childNodes).map(walk).join('');
       }
+
+      function simplifyHtml(html) {
+        const div = document.createElement('div');
+        div.innerHTML = html;
+        function walk(node) {
+          if (node.nodeType === Node.TEXT_NODE) return node.textContent;
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            if (node.tagName === 'A' && node.hasAttribute('href')) {
+              return `<a href="${node.getAttribute('href')}">${node.textContent}</a>`;
+            }
+            if (node.tagName === 'BR') return '\n';
+            if (node.tagName === 'P' || node.tagName === 'DIV') return '\n' + Array.from(node.childNodes).map(walk).join('');
+            return Array.from(node.childNodes).map(walk).join('');
+          }
+          return '';
+        }
+        return Array.from(div.childNodes).map(walk).join('').trim();
+      }
+
+      shareBtn.addEventListener('click', async () => {
+        const longUrl = window.location.href;
+        const originalContent = shareBtn.innerHTML;
+        const originalTitle = shareBtn.title;
+        
+        shareBtn.innerHTML = '...';
+        shareBtn.disabled = true;
+        shareBtn.title = 'Shortening...';
+
+        let success = false;
+        let urlToCopy = longUrl;
+
+        try {
+            const res = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(longUrl)}`);
+            if (res.ok) {
+                const shortUrl = await res.text();
+                if (shortUrl.startsWith('http')) {
+                    urlToCopy = shortUrl;
+                }
+            }
+        } catch (e) {
+            console.error('Could not shorten URL, will copy long URL instead:', e);
+        }
+
+        try {
+            await navigator.clipboard.writeText(urlToCopy);
+            success = true;
+        } catch (e) {
+            console.error('Failed to copy to clipboard:', e);
+        }
+
+        shareBtn.innerHTML = success ? '✓' : '✗';
+        shareBtn.style.color = success ? 'var(--success)' : '#e88';
+        shareBtn.title = success ? 'Copied!' : 'Failed to copy';
+        
+        setTimeout(() => {
+            shareBtn.innerHTML = originalContent;
+            shareBtn.disabled = false;
+            shareBtn.style.color = '';
+            shareBtn.title = originalTitle;
+        }, 2000);
+      });
 
       btnParse.addEventListener('click', () => buildItinerary(csvInput.value));
 
@@ -1645,7 +1745,7 @@
             let colIndex = 0;
             cells.forEach(cell => {
                 while (grid[rowIndex][colIndex] !== undefined) colIndex++;
-                const htmlContent = cell.innerHTML;
+                const htmlContent = simplifyHtml(cell.innerHTML);
                 const colspan = parseInt(cell.getAttribute('colspan') || '1', 10);
                 const rowspan = parseInt(cell.getAttribute('rowspan') || '1', 10);
                 for (let r = 0; r < rowspan; r++) {
