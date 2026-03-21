@@ -200,7 +200,6 @@
       background: var(--bg);
       color: var(--text);
       font: inherit;
-      font-size: 13px;
       resize: vertical;
       transition: border-color 0.2s;
     }
@@ -335,8 +334,8 @@
     }
 
     .view-btn.active {
-      background: var(--accent);
-      color: var(--bg);
+      background: var(--accent-soft);
+      color: var(--accent);
       border-color: var(--accent);
       font-weight: 500;
     }
@@ -579,6 +578,7 @@
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
+      flex-wrap: wrap;
     }
 
     .packing-tabs {
@@ -588,17 +588,25 @@
     }
 
     .packing-tab {
-      background: none;
-      border: none;
+      background: transparent;
+      border: 1px solid var(--border);
       padding: 0.5rem 1rem;
       cursor: pointer;
       color: var(--text-muted);
+      font: inherit;
       font-weight: 500;
       border-radius: var(--radius-sm);
+      transition: background 0.2s, color 0.2s, border-color 0.2s;
+    }
+
+    .packing-tab:hover {
+      color: var(--text);
+      background: var(--surface-hover);
     }
 
     .packing-tab.active {
-      background: var(--surface-hover);
+      background: var(--accent-soft);
+      border-color: var(--accent);
       color: var(--accent);
     }
 
@@ -615,6 +623,34 @@
     .packing-content h3 {
       margin-top: 1.5rem;
       color: var(--accent);
+    }
+
+    .packing-inputs-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .packing-count-input {
+      width: 80px;
+      padding: 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--bg);
+      color: var(--text);
+      font: inherit;
+    }
+
+    .packing-count-input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .btn-square-icon {
+      padding: 0.65rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
 
     .packing-content h2:first-child {
@@ -1255,12 +1291,19 @@
             <button class="packing-tab active" data-type="packing">Packing List</button>
             <button class="packing-tab" data-type="apps">Travel Apps</button>
           </div>
-          <div style="display:flex; align-items:center; gap:0.5rem;" id="packing-inputs-wrapper">
+          <div class="packing-inputs-wrapper" id="packing-inputs-wrapper">
             <label for="packing-count-input" style="font-weight:500;">Travelers:</label>
-            <input type="number" id="packing-count-input" min="1" value="1" class="setting-input"
-              style="width: 60px; margin-bottom:0; padding:0.5rem;">
+            <input type="number" id="packing-count-input" min="1" value="1" class="packing-count-input">
           </div>
-          <button id="btn-generate-checklist" class="btn btn-primary">Regenerate</button>
+          <button id="btn-generate-checklist" class="btn btn-primary btn-square-icon" title="Regenerate"
+            aria-label="Regenerate">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <polyline points="1 20 1 14 7 14"></polyline>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+            </svg>
+          </button>
         </div>
         <div id="packing-content" class="packing-content">
           <p style="color:var(--text-muted)">Select a category and click Regenerate.</p>
