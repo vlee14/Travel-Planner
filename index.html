@@ -72,9 +72,7 @@
     }
 
     .header-row {
-      margin-bottom: 2rem;
       display: flex;
-      justify-content: space-between;
       align-items: center;
       margin-bottom: 1.5rem;
     }
@@ -82,6 +80,8 @@
     .header-actions {
       display: flex;
       gap: 0.5rem;
+      margin-left: auto;
+      padding-left: 1rem; /* Add space between title and buttons */
     }
 
     .btn-icon {
@@ -299,6 +299,7 @@
       display: flex;
       gap: 0.5rem;
       margin-bottom: 1.5rem;
+      flex-wrap: wrap;
     }
 
     .view-btn {
@@ -401,6 +402,13 @@
       background: var(--bg);
     }
 
+    .calendar-day.today {
+      border: 2px solid var(--accent);
+      background: var(--surface-hover);
+      position: relative;
+      z-index: 1;
+    }
+
     .calendar-event {
       font-size: 0.8rem;
       background: var(--accent-soft);
@@ -463,25 +471,28 @@
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 1.5rem;
+      padding: 0;
       margin-bottom: 2rem;
       box-shadow: var(--shadow);
     }
 
     .location-card-summary {
-      margin-bottom: 1.25rem;
-      padding-bottom: 1rem;
+      margin: 0;
+      padding: 1.5rem 3rem 1rem 1.5rem;
       border-bottom: 1px solid var(--border);
       cursor: pointer;
-      position: relative;
-      padding-right: 2rem;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: var(--surface);
+      border-radius: var(--radius) var(--radius) 0 0;
     }
 
     .location-card-summary::after {
       content: '';
       position: absolute;
-      top: 0.5rem;
-      right: 0.5rem;
+      top: 2rem;
+      right: 1.5rem;
       width: 0.6rem;
       height: 0.6rem;
       border-right: 2px solid var(--text-muted);
@@ -533,16 +544,45 @@
 
     .location-card.collapsed .location-card-summary {
       border-bottom-color: transparent;
-      margin-bottom: 0;
-      padding-bottom: 0;
+      border-radius: var(--radius);
     }
 
     .location-card.collapsed .location-card-days {
       display: none;
+      grid-template-rows: 0fr;
+      padding-top: 0;
+      padding-bottom: 0;
+      opacity: 0;
+    }
+
+    .location-card-days {
+      display: grid;
+      grid-template-rows: 1fr;
+      transition: grid-template-rows 0.3s ease, padding 0.3s ease, opacity 0.3s ease;
+      padding: 1.25rem 1.5rem 1.5rem;
+      opacity: 1;
+    }
+
+    .location-card-days-inner {
+      min-height: 0;
+      overflow: hidden;
     }
 
     .day-group {
       margin-bottom: 2rem;
+      border-radius: var(--radius-sm);
+      transition: background 0.3s;
+    }
+
+    .day-group.today-active {
+      background: var(--surface-hover);
+      border: 2px solid var(--accent);
+      padding: 1rem;
+    }
+    
+    .day-group.hidden,
+    .event-card.hidden {
+      display: none !important;
     }
 
     .location-card .day-group:last-child {
@@ -646,6 +686,62 @@
     .empty-state p {
       margin: 0 0 0.5rem;
     }
+
+    /* Search & Timezone additions */
+    .search-wrapper {
+      width: 100%;
+      margin-top: 0.5rem;
+      margin-left: 0;
+      position: relative;
+      min-width: 200px;
+    }
+
+    .search-input {
+      width: 100%;
+      height: 2.5rem;
+      padding: 0.5rem 1rem 0.5rem 2.25rem;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      font: inherit;
+    }
+    .search-input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .search-icon-overlay {
+      position: absolute;
+      left: 0.75rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+    .location-card.hidden { display: none; }
+
+    @media print {
+      .header-row .header-actions, .input-section, .view-controls, .day-notes-btn, .subtitle {
+        display: none !important;
+      }
+      .page {
+        padding: 0;
+        max-width: none;
+      }
+      .itinerary-section, .itinerary-list, .location-card, .location-card-days {
+        display: block !important;
+      }
+      .location-card.collapsed .location-card-days {
+        display: block !important;
+        opacity: 1 !important;
+        grid-template-rows: 1fr !important;
+      }
+      .location-card {
+        break-inside: avoid;
+        box-shadow: none;
+        border: 1px solid #ccc;
+      }
+    }
   </style>
 </head>
 <body>
@@ -698,6 +794,10 @@
         <button type="button" class="view-btn" data-view="map" title="Map View" aria-label="Map View">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>
         </button>
+        <div class="search-wrapper">
+          <svg class="search-icon-overlay" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <input type="text" id="search-input" class="search-input" placeholder="Search events...">
+        </div>
       </div>
 
       <div id="itinerary-map" class="itinerary-map"></div>
@@ -728,7 +828,9 @@
       const panels = document.querySelectorAll('.input-panel');
       const viewBtns = document.querySelectorAll('.view-btn');
       const themeToggle = document.getElementById('theme-toggle');
+      const h1 = document.querySelector('.header-row h1');
       const shareBtn = document.getElementById('share-btn');
+      const searchInput = document.getElementById('search-input');
 
       let parsed = null; // { locations, dates, rows: [ { time, cells[] } ] }
       let map = null;
@@ -737,6 +839,7 @@
       let polyline = null;
       const mapPoints = []; // Array of {lat, lon}
       const mapMarkers = {}; // Object to track unique locations
+      let hasScrolledToToday = false;
 
       // Theme Logic
       let currentTheme = localStorage.getItem('theme') || 'light';
@@ -768,9 +871,53 @@
         errorMsg.classList.toggle('visible', !!msg);
       }
 
+      function resetApp() {
+        // Clear data model
+        parsed = null;
+
+        // Clear inputs
+        csvInput.value = '';
+        sheetUrl.value = '';
+        showError('');
+
+        // Reset UI visibility
+        itinerarySection.classList.remove('visible');
+        inputSection.style.display = 'block';
+        emptyState.style.display = 'block';
+        shareBtn.style.display = 'none';
+
+        // Clear rendered content
+        listContent.innerHTML = '';
+        document.getElementById('itinerary-calendar').innerHTML = '';
+        if (map) {
+          resetMapData();
+        }
+
+        // Reset input tabs to default
+        tabs.forEach(t => t.classList.remove('active'));
+        panels.forEach(p => p.classList.remove('active'));
+        document.querySelector('.tab[data-tab="paste"]').classList.add('active');
+        document.getElementById('panel-paste').classList.add('active');
+
+        // Clear data from URL
+        const url = new URL(window.location);
+        url.searchParams.delete('data');
+        window.history.replaceState({}, '', url);
+      }
+
       function parseCSV(text) {
-        // Detect delimiter from the first line. Default to tab for pasted data from spreadsheets.
-        const firstLine = text.slice(0, text.indexOf('\n'));
+        // Detect delimiter properly by finding the first *unquoted* newline
+        let firstRowEnd = text.length;
+        let q = false;
+        for (let i = 0; i < text.length; i++) {
+          if (text[i] === '"') q = !q;
+          else if (!q && (text[i] === '\n' || text[i] === '\r')) {
+            firstRowEnd = i;
+            break;
+          }
+        }
+
+        const firstLine = text.slice(0, firstRowEnd);
         const tabCount = (firstLine.match(/\t/g) || []).length;
         const commaCount = (firstLine.match(/,/g) || []).length;
         const delimiter = commaCount > tabCount ? ',' : '\t';
@@ -780,7 +927,7 @@
         let inQuotes = false;
         const row = [];
         const pushRow = () => {
-          if (row.length) rows.push(row.slice());
+          rows.push(row.slice());
           row.length = 0;
         };
         const pushCell = () => {
@@ -789,26 +936,46 @@
         };
         for (let i = 0; i < text.length; i++) {
           const c = text[i];
+          const next = text[i + 1];
+
           if (inQuotes) {
-            if (c === '"') inQuotes = false;
-            else current += c;
+            if (c === '"') {
+              if (next === '"') {
+                current += '"';
+                i++;
+              } else {
+                inQuotes = false;
+              }
+            } else {
+              current += c;
+            }
             continue;
           }
-          if (c === '"') { inQuotes = true; continue; }
-          if (c === '\n' || c === '\r') {
-            pushCell();
-            if (c === '\r' && text[i + 1] === '\n') i++;
-            pushRow();
+
+          if (c === '"') {
+            inQuotes = true;
             continue;
           }
+          
           if (c === delimiter) {
             pushCell();
             continue;
           }
+
+          if (c === '\n' || c === '\r') {
+            pushCell();
+            pushRow();
+            if (c === '\r' && text[i + 1] === '\n') i++;
+            continue;
+          }
           current += c;
         }
-        pushCell();
-        pushRow();
+        
+        if (current || row.length > 0) {
+          pushCell();
+          pushRow();
+        }
+
         return rows;
       }
 
@@ -885,6 +1052,7 @@
       function render() {
         if (!parsed) return;
         resetMapData();
+        hasScrolledToToday = false;
         const { locations, dates, rows, hotelCells } = parsed;
 
         // Valid day columns: must have both date and location (non-empty after trim).
@@ -1002,13 +1170,20 @@
 
         const now = new Date();
         now.setHours(0, 0, 0, 0);
+        const todayYmd = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
 
+        searchInput.value = ''; // Reset search
+        
         locationRuns.forEach(run => {
           const dateRangeStr = run.dateKeys.length === 1 ? run.dateKeys[0] : `${run.dateKeys[0]} – ${run.dateKeys[run.dateKeys.length - 1]}`;
           const cardEl = document.createElement('div');
           cardEl.className = 'location-card';
 
           let isCurrent = false;
+          if (run.dateKeys.some(k => parseSmartDate(k) === todayYmd)) {
+            isCurrent = true;
+          }
+
           const startTs = parseDateForSort(run.dateKeys[0]);
           const endTs = parseDateForSort(run.dateKeys[run.dateKeys.length - 1]);
           if (startTs !== Infinity && endTs !== Infinity) {
@@ -1024,7 +1199,7 @@
           cardEl.dataset.start = run.dateKeys[0];
           cardEl.dataset.end = run.dateKeys[run.dateKeys.length - 1];
 
-          cardEl.className = isCurrent ? 'location-card' : 'location-card collapsed';
+          cardEl.className = isCurrent ? 'location-card expanded' : 'location-card collapsed';
 
           const summary = document.createElement('div');
           summary.className = 'location-card-summary';
@@ -1056,6 +1231,8 @@
 
           const daysContainer = document.createElement('div');
           daysContainer.className = 'location-card-days';
+          const daysInner = document.createElement('div');
+          daysInner.className = 'location-card-days-inner';
           run.dateKeys.forEach(dateLabel => {
             const allItems = (byDate[dateLabel] || []).filter(e => e.location === run.locName);
             
@@ -1080,6 +1257,9 @@
             
             const dayDiv = document.createElement('div');
             dayDiv.className = 'day-group';
+            if (parseSmartDate(dateLabel) === todayYmd) {
+              dayDiv.classList.add('today-active');
+            }
             
             const titleDiv = document.createElement('div');
             titleDiv.className = 'day-group-title';
@@ -1123,7 +1303,9 @@
               dayDiv.appendChild(eventCard);
             });
             daysContainer.appendChild(dayDiv);
+            daysInner.appendChild(dayDiv);
           });
+          daysContainer.appendChild(daysInner);
           cardEl.appendChild(daysContainer);
           listContent.appendChild(cardEl);
         });
@@ -1152,6 +1334,9 @@
           // but generally if effectiveHotel has a value, it applies to that night.
         }
 
+        const today = new Date();
+        const todayYmd = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+        
         const eventsByYmd = {};
         let minTs = Infinity;
         let maxTs = -Infinity;
@@ -1246,6 +1431,7 @@
             week.forEach(d => {
                 const cell = document.createElement('div');
                 cell.className = 'calendar-day';
+                if (d.ymd === todayYmd) cell.classList.add('today');
                 cell.dataset.date = d.ymd;
                 
                 const num = document.createElement('div');
@@ -1546,6 +1732,7 @@
         now.setHours(0, 0, 0, 0);
         
         const days = [];
+        let timezone = null;
 
         // Fetch per day
         for (const dateStr of daysToFetch) {
@@ -1562,6 +1749,7 @@
                 const res = await fetch(url);
                 if (res.ok) {
                     const json = await res.json();
+                    if (json.timezone) timezone = json.timezone; // Capture timezone
                     if (json.daily && json.daily.time && json.daily.time.length > 0) {
                         dayData = {
                             datetime: dateStr,
@@ -1590,6 +1778,7 @@
                     const res = await fetch(url);
                     if (res.ok) {
                         const json = await res.json();
+                        if (json.timezone) timezone = json.timezone;
                         if (json.daily && json.daily.time && json.daily.time.length > 0) {
                             dayData = {
                                 datetime: dateStr,
@@ -1610,12 +1799,12 @@
             }
         }
 
-        return days;
+        return { days, timezone };
       }
 
-      function renderCardWeather(card, days) {
+      function renderCardWeather(card, { days, timezone }) {
         try {
-          if (days.length > 0) {
+          if (days && days.length > 0) {
             const maxHigh = Math.round(Math.max(...days.map(d => d.tempmax)));
             const minHigh = Math.round(Math.min(...days.map(d => d.tempmax)));
             
@@ -1656,9 +1845,35 @@
             }
           }
 
+          // Setup Local Time Clock if timezone found
+          if (timezone) {
+            const meta = card.querySelector('.location-card-meta');
+            if (meta && !meta.querySelector('.local-time-display')) {
+              const clockEl = document.createElement('div');
+              clockEl.className = 'local-time-display';
+              clockEl.style.marginTop = '0.5rem';
+              clockEl.style.color = 'var(--text-muted)';
+              clockEl.style.fontSize = '0.9rem';
+              clockEl.innerHTML = `🕒 Local time: <span class="clock-val">--:--</span>`;
+              const firstHotel = meta.querySelector('.hotel');
+              if (firstHotel) {
+                meta.insertBefore(clockEl, firstHotel);
+              } else {
+                meta.appendChild(clockEl);
+              }
+
+              // Store timezone for the interval updater
+              clockEl.dataset.tz = timezone;
+              updateSingleClock(clockEl);
+            }
+          }
+
           const groups = card.querySelectorAll('.day-group-title');
           groups.forEach(title => {
-            const tDate = parseSmartDate(title.dataset.date);
+            // data-date is usually "Mon, Jan 1"
+            // parseSmartDate converts it to YYYY-MM-DD
+            const smartDate = parseSmartDate(title.dataset.date); 
+            const tDate = smartDate; 
             const dayData = days.find(d => d.datetime === tDate);
             if (dayData) {
               let badge = title.querySelector('.weather-badge');
@@ -1673,7 +1888,7 @@
           });
 
           // Update Calendar View cells
-          if (days.length > 0) {
+          if (days && days.length > 0) {
             days.forEach(dayData => {
               const calCell = document.querySelector(`.calendar-day[data-date="${dayData.datetime}"]`);
               if (calCell) {
@@ -1710,17 +1925,78 @@
         }
       }
 
+      function updateSingleClock(el) {
+        try {
+          const tz = el.dataset.tz;
+          if (!tz) return;
+          const now = new Date();
+          const options = { hour: 'numeric', minute: '2-digit', timeZone: tz, hour12: true };
+          // Format: "2:45 PM"
+          const timeStr = new Intl.DateTimeFormat('en-US', options).format(now);
+          const val = el.querySelector('.clock-val');
+          if (val) val.textContent = timeStr;
+        } catch (e) { console.error(e); }
+      }
+
+      // Update all clocks every minute
+      setInterval(() => {
+        document.querySelectorAll('.local-time-display').forEach(updateSingleClock);
+      }, 60000);
+
       async function fetchAllWeather() {
         const cards = document.querySelectorAll('.location-card');
         const results = [];
         for (const card of cards) {
-          const days = await fetchCardWeatherData(card);
-          results.push({ card, days });
+          const data = await fetchCardWeatherData(card);
+          results.push({ card, data });
         }
-        for (const { card, days } of results) {
-          if (days) renderCardWeather(card, days);
+        for (const { card, data } of results) {
+          if (data) renderCardWeather(card, data);
         }
       }
+
+      // Search Logic
+      searchInput.addEventListener('input', (e) => {
+        const term = e.target.value.toLowerCase();
+        const cards = document.querySelectorAll('.location-card');
+        
+        cards.forEach(card => {
+          const days = card.querySelectorAll('.day-group');
+          let hasVisibleDay = false;
+
+          days.forEach(day => {
+            const text = day.textContent.toLowerCase();
+            if (text.includes(term)) {
+              day.classList.remove('hidden');
+              hasVisibleDay = true;
+            } else {
+              day.classList.add('hidden');
+            }
+          });
+
+          // If card matches title, show all days? Or just filter days?
+          // Let's hide card if no days match and card title doesn't match
+          const titleMatch = card.querySelector('.location-card-name').textContent.toLowerCase().includes(term);
+          
+          if (titleMatch) {
+            if (term) card.classList.remove('collapsed');
+            // If title matches, show matches inside, but ensure card is visible
+            // Optional: unhide all days if title matches? Let's keep granular filtering.
+            card.classList.remove('hidden');
+            if (!hasVisibleDay && term.length > 0) {
+               // If title matches but no days, show card but maybe days are hidden. 
+               // Let's unhide all days if title matches to avoid empty card
+               days.forEach(d => d.classList.remove('hidden'));
+            }
+          } else {
+            if (hasVisibleDay) {
+              card.classList.remove('hidden');
+              if (term) card.classList.remove('collapsed');
+            }
+            else card.classList.add('hidden');
+          }
+        });
+      });
 
       function escapeHtml(s) {
         const div = document.createElement('div');
@@ -1737,18 +2013,21 @@
       function linkifyAndSanitize(str) {
         const div = document.createElement('div');
         div.innerHTML = str;
+        // Convert newlines to <br> to ensure they are preserved as breaks
+        div.innerHTML = (str || '').replace(/\n/g, '<br>');
         
         function walk(node) {
             if (node.nodeType === Node.TEXT_NODE) {
                 return escapeHtml(node.textContent);
             }
             if (node.nodeType === Node.ELEMENT_NODE) {
+                if (node.tagName === 'BR') return '<br>';
                 if (node.tagName === 'A' && node.hasAttribute('href')) {
                     const a = document.createElement('a');
                     a.href = node.getAttribute('href');
                     a.target = '_blank';
                     a.rel = 'noopener noreferrer';
-                    a.textContent = node.textContent;
+                    a.innerHTML = Array.from(node.childNodes).map(walk).join('');
                     return a.outerHTML;
                 }
                 return Array.from(node.childNodes).map(walk).join('');
@@ -1765,7 +2044,8 @@
           if (node.nodeType === Node.TEXT_NODE) return node.textContent;
           if (node.nodeType === Node.ELEMENT_NODE) {
             if (node.tagName === 'A' && node.hasAttribute('href')) {
-              return `<a href="${node.getAttribute('href')}">${node.textContent}</a>`;
+              const content = Array.from(node.childNodes).map(walk).join('');
+              return `<a href="${node.getAttribute('href')}">${content}</a>`;
             }
             if (node.tagName === 'BR') return '\n';
             if (node.tagName === 'P' || node.tagName === 'DIV') return '\n' + Array.from(node.childNodes).map(walk).join('');
@@ -1915,6 +2195,9 @@
           viewBtns.forEach(b => b.classList.remove('active'));
           btn.classList.add('active');
 
+          const searchWrapper = document.querySelector('.search-wrapper');
+          if (searchWrapper) searchWrapper.style.display = view === 'list' ? '' : 'none';
+
           if (view === 'map') {
             document.getElementById('itinerary-list').classList.remove('visible');
             document.getElementById('itinerary-calendar').classList.remove('visible');
@@ -1934,9 +2217,25 @@
             document.getElementById('itinerary-map').classList.remove('visible');
             document.getElementById('itinerary-calendar').classList.remove('visible');
             document.getElementById('itinerary-list').classList.add('visible');
+
+            if (!hasScrolledToToday) {
+              const activeDay = document.querySelector('.day-group.today-active');
+              const activeCard = document.querySelector('.location-card.expanded');
+              if (activeDay || activeCard) {
+                setTimeout(() => {
+                  (activeDay || activeCard).scrollIntoView({ behavior: 'smooth', block: activeDay ? 'center' : 'start' });
+                }, 100);
+                hasScrolledToToday = true;
+              }
+            }
           }
         });
       });
+
+      // Reset functionality
+      h1.title = 'Clear data and start over';
+      h1.style.cursor = 'pointer';
+      h1.addEventListener('click', resetApp);
 
       loadFromUrl();
 
