@@ -1110,7 +1110,7 @@
           Key &nearr;</a></label>
       <input type="password" id="setting-vc-key" class="setting-input"
         placeholder="For enhanced weather data (optional)">
-        
+
       <label class="setting-label" for="setting-api-key">Google AI API Key <a
           href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer"
           style="float:right; font-weight:normal; font-size:0.9em; color:var(--accent); text-decoration:none;">Get API
@@ -1181,10 +1181,15 @@
       let hasScrolledToToday = false
       const GEMINI_API_KEY_STORAGE = 'gemini_api_key';
       const VC_API_KEY_STORAGE = 'visual_crossing_key';
+      const WEATHER_CACHE_PREFIX = 'weather_cache_v1_';
+      const WEATHER_CACHE_EXPIRY = 1000 * 60 * 60 * 6; // 6 hours
+      const AI_CACHE_PREFIX = 'ai_chat_cache_v1_';
+      const AI_CACHE_EXPIRY = 1000 * 60 * 60 * 3; // 3 hours
       let geminiApiKey = null;
       let visualCrossingKey = null;
       let geminiModelName = 'gemini-3.1-flash-lite-preview';
       let aiConversationHistory = [];
+      let currentAiCacheKey = null;
 
       // Theme Logic
       let currentTheme = localStorage.getItem('theme') || 'light';
@@ -2106,6 +2111,24 @@
         const end = parseSmartDate(card.dataset.end);
         if (!loc || !start) return;
 
+        const source = visualCrossingKey ? 'vc' : 'om';
+        const cacheKey = `${WEATHER_CACHE_PREFIX}${source}_${encodeURIComponent(loc)}_${start}_${end || ''}`;
+
+        try {
+          const cachedJson = localStorage.getItem(cacheKey);
+          if (cachedJson) {
+            const cached = JSON.parse(cachedJson);
+            if (Date.now() - cached.timestamp < WEATHER_CACHE_EXPIRY) {
+              if (cached.coords) {
+                addMapLocation(loc, cached.coords.lat, cached.coords.lon);
+              }
+              return cached.data;
+            }
+          }
+        } catch (e) {
+          console.warn('Cache read error', e);
+        }
+
         // Try Visual Crossing first if key exists
         if (visualCrossingKey) {
           try {
@@ -2117,7 +2140,9 @@
 
             const data = await res.json();
             if (data) {
+              let coords = null;
               if (data.latitude && data.longitude) {
+                coords = { lat: data.latitude, lon: data.longitude };
                 addMapLocation(loc, data.latitude, data.longitude);
               }
               const timezone = data.timezone;
@@ -2129,7 +2154,9 @@
                 label: d.conditions,
                 isHistorical: false // VC handles mixed forecast/history automatically
               }));
-              return { days, timezone };
+              const result = { days, timezone };
+              try { localStorage.setItem(cacheKey, JSON.stringify({ timestamp: Date.now(), data: result, coords })); } catch (e) { }
+              return result;
             }
           } catch (e) {
             console.warn('Visual Crossing fetch failed, falling back to Open-Meteo.', e);
@@ -2228,7 +2255,9 @@
           }
         }
 
-        return { days, timezone };
+        const result = { days, timezone };
+        try { localStorage.setItem(cacheKey, JSON.stringify({ timestamp: Date.now(), data: result, coords })); } catch (e) { }
+        return result;
       }
 
       function renderCardWeather(card, { days, timezone }) {
@@ -2392,6 +2421,45 @@
           return;
         }
 
+        currentAiCacheKey = `${AI_CACHE_PREFIX}${encodeURIComponent(location)}_${date}`;
+
+        try {
+          const cachedJson = localStorage.getItem(currentAiCacheKey);
+          if (cachedJson) {
+            const cached = JSON.parse(cachedJson);
+            if (Date.now() - cached.timestamp < AI_CACHE_EXPIRY) {
+              aiConversationHistory = cached.history;
+              aiModal.style.display = 'flex';
+              aiModalTitle.textContent = `AI Suggestions for ${date}`;
+              aiModalBody.innerHTML = '';
+
+              aiConversationHistory.forEach((msg, index) => {
+                if (index === 0) return; // Skip initial system prompt
+
+                const div = document.createElement('div');
+                div.className = `ai-message ${msg.role}`;
+
+                if (msg.role === 'model') {
+                  const text = msg.parts[0].text;
+                  let html = text
+                    .replace(/^###\s*(.*$)/gim, '<h4>$1</h4>')
+                    .replace(/^##\s*(.*$)/gim, '<h3>$1</h3>')
+                    .replace(/^#\s*(.*$)/gim, '<h2>$1</h2>')
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                    .replace(/\n/g, '<br>');
+                  div.innerHTML = html;
+                } else {
+                  div.textContent = msg.parts[0].text;
+                }
+                aiModalBody.appendChild(div);
+              });
+              aiModalBody.scrollTop = 0;
+              return;
+            }
+          }
+        } catch (e) { console.warn('Cache read error', e); }
+
         aiModal.style.display = 'flex';
         aiModalTitle.textContent = `AI Suggestions for ${date}`;
         aiModalBody.innerHTML = ''; // Clear previous conversation
@@ -2482,6 +2550,15 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
 
           aiConversationHistory.push({ role: 'model', parts: [{ text: responseText }] });
 
+          if (currentAiCacheKey) {
+            try {
+              localStorage.setItem(currentAiCacheKey, JSON.stringify({
+                timestamp: Date.now(),
+                history: aiConversationHistory
+              }));
+            } catch (e) { }
+          }
+
           const messageDiv = document.createElement('div');
           messageDiv.className = 'ai-message model';
           // Basic markdown to HTML conversion
@@ -2503,7 +2580,6 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
           errorDiv.innerHTML = `<p style="color: #e88;"><strong>Error:</strong> ${error.message}</p><p>Please check your API key and network connection.</p>`;
           aiModalBody.appendChild(errorDiv);
         } finally {
-          aiModalBody.scrollTop = aiModalBody.scrollHeight;
           aiFollowUpInput.disabled = false;
           aiFollowUpBtn.disabled = false;
           aiFollowUpInput.focus();
