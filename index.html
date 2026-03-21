@@ -1006,7 +1006,7 @@
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
           </svg>
         </button>
-        <button id="settings-btn" class="btn-icon" title="AI Settings" aria-label="AI Settings">
+        <button id="settings-btn" class="btn-icon" title="Settings" aria-label="Settings">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"></circle>
@@ -1102,8 +1102,15 @@
   <div id="settings-modal">
     <div class="settings-modal-content">
       <button id="settings-close" class="ai-modal-close-btn" aria-label="Close">&times;</button>
-      <h3 style="margin-top:0">AI Settings</h3>
+      <h3 style="margin-top:0">Settings</h3>
 
+      <label class="setting-label" for="setting-vc-key">Visual Crossing API Key <a
+          href="https://www.visualcrossing.com/account/" target="_blank" rel="noopener noreferrer"
+          style="float:right; font-weight:normal; font-size:0.9em; color:var(--accent); text-decoration:none;">Get API
+          Key &nearr;</a></label>
+      <input type="password" id="setting-vc-key" class="setting-input"
+        placeholder="For enhanced weather data (optional)">
+        
       <label class="setting-label" for="setting-api-key">Google AI API Key <a
           href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer"
           style="float:right; font-weight:normal; font-size:0.9em; color:var(--accent); text-decoration:none;">Get API
@@ -1154,6 +1161,7 @@
       const settingsModal = document.getElementById('settings-modal');
       const settingsClose = document.getElementById('settings-close');
       const settingApiKey = document.getElementById('setting-api-key');
+      const settingVcKey = document.getElementById('setting-vc-key');
       const settingModel = document.getElementById('setting-model');
       const btnSaveSettings = document.getElementById('btn-save-settings');
       const aiModal = document.getElementById('ai-modal');
@@ -1172,7 +1180,9 @@
       const mapMarkers = {}; // Object to track unique locations
       let hasScrolledToToday = false
       const GEMINI_API_KEY_STORAGE = 'gemini_api_key';
+      const VC_API_KEY_STORAGE = 'visual_crossing_key';
       let geminiApiKey = null;
+      let visualCrossingKey = null;
       let geminiModelName = 'gemini-3.1-flash-lite-preview';
       let aiConversationHistory = [];
 
@@ -2096,6 +2106,36 @@
         const end = parseSmartDate(card.dataset.end);
         if (!loc || !start) return;
 
+        // Try Visual Crossing first if key exists
+        if (visualCrossingKey) {
+          try {
+            const endDateStr = end || start;
+            const url = `https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/${encodeURIComponent(loc)}/${start}/${endDateStr}?unitGroup=us&key=${visualCrossingKey}&include=days&contentType=json`;
+
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`Visual Crossing error: ${res.status}`);
+
+            const data = await res.json();
+            if (data) {
+              if (data.latitude && data.longitude) {
+                addMapLocation(loc, data.latitude, data.longitude);
+              }
+              const timezone = data.timezone;
+              const days = (data.days || []).map(d => ({
+                datetime: d.datetime,
+                tempmax: d.tempmax,
+                tempmin: d.tempmin,
+                icon: d.icon,
+                label: d.conditions,
+                isHistorical: false // VC handles mixed forecast/history automatically
+              }));
+              return { days, timezone };
+            }
+          } catch (e) {
+            console.warn('Visual Crossing fetch failed, falling back to Open-Meteo.', e);
+          }
+        }
+
         const coords = await getCoordinates(loc);
         if (!coords) return;
 
@@ -2597,6 +2637,7 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
       settingsBtn.addEventListener('click', () => {
         settingsModal.style.display = 'flex';
         settingApiKey.value = geminiApiKey || '';
+        settingVcKey.value = visualCrossingKey || '';
         settingModel.value = geminiModelName;
         if (geminiApiKey) {
           populateModels().then(() => {
@@ -2613,6 +2654,7 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
 
       btnSaveSettings.addEventListener('click', () => {
         const key = settingApiKey.value.trim();
+        const vcKey = settingVcKey.value.trim();
         const model = settingModel.value;
 
         if (key) {
@@ -2623,6 +2665,14 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
           localStorage.removeItem(GEMINI_API_KEY_STORAGE);
           geminiApiKey = null;
           document.body.classList.remove('has-api-key');
+        }
+
+        if (vcKey) {
+          localStorage.setItem(VC_API_KEY_STORAGE, vcKey);
+          visualCrossingKey = vcKey;
+        } else {
+          localStorage.removeItem(VC_API_KEY_STORAGE);
+          visualCrossingKey = null;
         }
 
         if (model) {
@@ -2888,6 +2938,7 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
       (async () => {
         // Initialize API Key from storage
         geminiApiKey = localStorage.getItem(GEMINI_API_KEY_STORAGE);
+        visualCrossingKey = localStorage.getItem(VC_API_KEY_STORAGE);
         if (geminiApiKey) {
           document.body.classList.add('has-api-key');
         }
