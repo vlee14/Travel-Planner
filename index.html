@@ -971,6 +971,7 @@
 
     .ai-message.model {
       background: var(--accent-soft);
+      white-space: normal;
     }
 
     .ai-message.loading {
@@ -981,7 +982,18 @@
 
     .ai-message p {
       margin-top: 0;
-      margin-bottom: 1rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .ai-message p:last-child {
+      margin-bottom: 0;
+    }
+
+    .ai-message ul,
+    .ai-message ol {
+      margin-top: 0;
+      margin-bottom: 0.5rem;
+      padding-left: 1.5rem;
     }
 
     .ai-message h4 {
@@ -989,7 +1001,15 @@
       margin-top: 1.5rem;
     }
 
-    .ai-message h4:first-child {
+    .ai-message h3 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin-top: 1rem;
+      margin-bottom: 0.25rem;
+    }
+
+    .ai-message h4:first-child,
+    .ai-message h3:first-child {
       margin-top: 0;
     }
 
@@ -1029,6 +1049,41 @@
 
     .location-card.hidden {
       display: none;
+    }
+
+    /* Offline Indicator */
+    .offline-indicator {
+      position: fixed;
+      bottom: 1.5rem;
+      right: 1.5rem;
+      background: var(--text);
+      color: var(--bg);
+      padding: 0.75rem 1.25rem;
+      border-radius: 50px;
+      font-weight: 500;
+      font-size: 0.9rem;
+      display: none;
+      align-items: center;
+      gap: 0.5rem;
+      z-index: 2000;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      animation: slide-up 0.3s ease;
+    }
+
+    .offline-indicator.visible {
+      display: flex;
+    }
+
+    @keyframes slide-up {
+      from {
+        transform: translateY(100%);
+        opacity: 0;
+      }
+
+      to {
+        transform: translateY(0);
+        opacity: 1;
+      }
     }
 
     @media print {
@@ -1242,6 +1297,11 @@
 
       <button id="btn-save-settings" class="btn btn-primary" style="width:100%">Save Settings</button>
       <p class="help-text" style="text-align:center; margin-top:1rem;">Key is stored locally in your browser.</p>
+
+      <hr style="margin: 1.5rem 0 1rem; border: 0; border-top: 1px solid var(--border);">
+      <button id="btn-clear-cache" class="btn"
+        style="width:100%; background:var(--surface); border:1px solid var(--border); color:var(--text);">Clear Data
+        Cache</button>
     </div>
   </div>
 
@@ -1256,6 +1316,20 @@
         <button id="ai-follow-up-btn" class="btn">Send</button>
       </div>
     </div>
+  </div>
+
+  <div id="offline-indicator" class="offline-indicator">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="1" y1="1" x2="23" y2="23"></line>
+      <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"></path>
+      <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"></path>
+      <path d="M10.71 5.05A16 16 0 0 1 22.58 9"></path>
+      <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"></path>
+      <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+      <line x1="12" y1="20" x2="12.01" y2="20"></line>
+    </svg>
+    Offline Mode
   </div>
 
   <script>
@@ -1283,6 +1357,7 @@
       const settingVcKey = document.getElementById('setting-vc-key');
       const settingModel = document.getElementById('setting-model');
       const btnSaveSettings = document.getElementById('btn-save-settings');
+      const btnClearCache = document.getElementById('btn-clear-cache');
       const aiModal = document.getElementById('ai-modal');
       const aiModalClose = document.getElementById('ai-modal-close');
       const aiModalTitle = document.getElementById('ai-modal-title');
@@ -2644,7 +2719,7 @@ Consider logistical efficiency (places near my current activities), distinct exp
 - Keep descriptions concise.
 
 **Format:**
-Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a brief description and a specific reason why it fits this itinerary.`;
+Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a brief description and a specific reason why it fits this itinerary. Include a Markdown link to search for the location on Google Maps (e.g. Open in Maps).`;
 
         aiConversationHistory.push({
           role: 'user',
@@ -3050,6 +3125,20 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
         settingsModal.style.display = 'none';
       });
 
+      btnClearCache.addEventListener('click', () => {
+        if (confirm('Clear all cached weather, AI suggestions, and packing lists? API keys will be preserved.')) {
+          const keysToRemove = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key.startsWith(WEATHER_CACHE_PREFIX) || key.startsWith(AI_CACHE_PREFIX)) {
+              keysToRemove.push(key);
+            }
+          }
+          keysToRemove.forEach(k => localStorage.removeItem(k));
+          alert('Cache cleared.');
+        }
+      });
+
       aiModalClose.addEventListener('click', () => {
         aiModal.style.display = 'none';
       });
@@ -3350,6 +3439,25 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
         loadFromUrl(); // Load itinerary data from URL if present
       })();
 
+      // Offline support & Service Worker Registration
+      const offlineIndicator = document.getElementById('offline-indicator');
+
+      function updateOnlineStatus() {
+        if (!navigator.onLine) {
+          offlineIndicator.classList.add('visible');
+        } else {
+          offlineIndicator.classList.remove('visible');
+        }
+      }
+
+      window.addEventListener('online', updateOnlineStatus);
+      window.addEventListener('offline', updateOnlineStatus);
+      updateOnlineStatus();
+
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js')
+          .catch(err => console.log('Service Worker registration failed', err));
+      }
     })();
   </script>
 </body>
