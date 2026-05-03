@@ -2479,5 +2479,14 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js')
       .catch(err => console.log('Service Worker registration failed', err));
+
+    // Automatically reload the page when a new service worker takes over
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!refreshing) {
+        window.location.reload();
+        refreshing = true;
+      }
+    });
   }
 })();

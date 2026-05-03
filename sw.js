@@ -1,4 +1,4 @@
-const CACHE_NAME = 'travel-planner-v2';
+const CACHE_NAME = 'travel-planner-v4';
 const STATIC_ASSETS = [
     './',
     'index.html',
@@ -18,7 +18,17 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-    event.waitUntil(clients.claim());
+    // Delete old versions of the cache
+    event.waitUntil(
+        caches.keys().then((cacheNames) => {
+            return Promise.all(
+                cacheNames.filter((name) => name !== CACHE_NAME)
+                    .map((name) => caches.delete(name))
+            );
+        }).then(() => {
+            return clients.claim();
+        })
+    );
 });
 
 self.addEventListener('fetch', (event) => {
@@ -39,33 +49,33 @@ self.addEventListener('fetch', (event) => {
     if (url.hostname.includes('tinyurl.com')) return;
 
     event.respondWith(
-        caches.match(event.request).then((cachedResponse) => {
-            if (cachedResponse) {
-                return cachedResponse;
+        (async () => {
+            const cache = await caches.open(CACHE_NAME);
+
+            // Network-first for navigation requests (the main HTML page)
+            // This ensures users get the latest UI if they are online.
+            if (event.request.mode === 'navigate') {
+                try {
+                    const networkResponse = await fetch(event.request);
+                    cache.put(event.request, networkResponse.clone());
+                    return networkResponse;
+                } catch (e) {
+                    return cache.match(event.request);
+                }
             }
 
-            return fetch(event.request).then((response) => {
-                // Cache valid responses (200) or opaque responses (0) for cross-origin assets like weather icons
-                const isSuccess = response && response.status === 200;
-                const isOpaque = response && response.type === 'opaque' && response.status === 0;
-                const isAllowedType = response && (response.type === 'basic' || response.type === 'cors' || response.type === 'opaque');
-
-                if (!response || (!isSuccess && !isOpaque) || !isAllowedType) {
-                    return response;
+            // Stale-while-revalidate for assets (CSS, JS, etc.)
+            const cachedResponse = await cache.match(event.request);
+            const fetchPromise = fetch(event.request).then((networkResponse) => {
+                if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+                    cache.put(event.request, networkResponse.clone());
                 }
-
-                const responseToCache = response.clone();
-                caches.open(CACHE_NAME).then((cache) => {
-                    cache.put(event.request, responseToCache);
-                }).catch(() => {
-                    // Ignore cache put errors (e.g. quota exceeded)
-                });
-                return response;
-            }).catch((error) => {
-                // Re-throw the error so the browser recognizes the network failure 
-                // instead of reporting the request as "Aborted" by the Service Worker.
-                throw error;
+                return networkResponse;
+            }).catch(() => {
+                // Fail silently, the cachedResponse will be returned
             });
-        })
+
+            return cachedResponse || fetchPromise;
+        })()
     );
 });
