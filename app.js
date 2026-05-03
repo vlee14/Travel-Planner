@@ -963,7 +963,7 @@
       // Attempt to load from cache immediately for better UX
       const cached = localStorage.getItem(DOC_CACHE_PREFIX + docId + '_' + gid);
       if (cached && !parsed) {
-        trackRecentDoc(docId); // Update access timestamp
+        trackRecentDoc(docId, null, gid); // Update access timestamp
 
         if (cached.startsWith('[[')) {
           // Cached JSON grid from Sheets API
@@ -1885,7 +1885,7 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
     });
   }
 
-  function trackRecentDoc(fileId, name) {
+  function trackRecentDoc(fileId, name, gid = '0') {
     const metadata = JSON.parse(localStorage.getItem(DOC_METADATA_KEY) || '{}');
     
     let startDate = metadata[fileId]?.startDate || null;
@@ -1903,7 +1903,8 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
       name: name || metadata[fileId]?.name || 'Untitled Itinerary', 
       lastAccessed: Date.now(),
       startDate,
-      endDate
+      endDate,
+      gid
     };
     localStorage.setItem(DOC_METADATA_KEY, JSON.stringify(metadata));
     renderRecentDocs();
@@ -1917,7 +1918,7 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
 
     const metadata = JSON.parse(localStorage.getItem(DOC_METADATA_KEY) || '{}');
     const entries = Object.entries(metadata)
-      .filter(([id]) => localStorage.getItem(DOC_CACHE_PREFIX + id + '_0'))
+      .filter(([id, info]) => localStorage.getItem(DOC_CACHE_PREFIX + id + '_' + (info.gid || '0')))
       .sort((a, b) => {
         if (sortBy === 'name') {
           return a[1].name.localeCompare(b[1].name);
@@ -1940,12 +1941,17 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
     wrapper.style.display = 'block';
     container.innerHTML = '';
     entries.slice(0, 5).forEach(([id, info]) => {
-      const btn = document.createElement('button');
-      btn.className = 'recent-doc-item';
+      const item = document.createElement('div');
+      item.className = 'recent-doc-item';
+      item.style.display = 'flex';
+      item.style.alignItems = 'center';
+      item.style.justifyContent = 'space-between';
+      item.style.paddingRight = '0.5rem';
+
       const dateRange = info.startDate ? `${info.startDate}${info.endDate && info.endDate !== info.startDate ? ' - ' + info.endDate : ''}` : '';
 
-      btn.innerHTML = `
-        <div style="display: flex; flex-direction: column; gap: 0.15rem; flex: 1; overflow: hidden;">
+      item.innerHTML = `
+        <div class="recent-doc-info" style="display: flex; flex-direction: column; gap: 0.15rem; flex: 1; overflow: hidden; cursor: pointer;">
           <div style="display: flex; align-items: center; gap: 0.75rem;">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
@@ -1958,12 +1964,34 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
           </div>
           ${dateRange ? `<span style="font-size: 0.75rem; color: var(--text-muted); margin-left: 2.15rem;">${escapeHtml(dateRange)}</span>` : ''}
         </div>
+        <button class="delete-recent-btn" title="Remove from recent list" style="background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 6px; display: flex; align-items: center; justify-content: center; opacity: 0.5; transition: all 0.2s;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+        </button>
       `;
-      btn.onclick = () => {
-        updateUrlWithDocId(id, '0');
+
+      item.querySelector('.recent-doc-info').onclick = () => {
+        updateUrlWithDocId(id, info.gid || '0');
         loadFromUrl();
       };
-      container.appendChild(btn);
+
+      const delBtn = item.querySelector('.delete-recent-btn');
+      delBtn.onmouseover = () => { delBtn.style.opacity = '1'; delBtn.style.color = '#e88'; };
+      delBtn.onmouseout = () => { delBtn.style.opacity = '0.5'; delBtn.style.color = ''; };
+      delBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (confirm(`Remove "${info.name}" from your recent list?`)) {
+          const metadata = JSON.parse(localStorage.getItem(DOC_METADATA_KEY) || '{}');
+          delete metadata[id];
+          localStorage.setItem(DOC_METADATA_KEY, JSON.stringify(metadata));
+          localStorage.removeItem(DOC_CACHE_PREFIX + id + '_' + (info.gid || '0'));
+          renderRecentDocs();
+        }
+      };
+
+      container.appendChild(item);
     });
   }
 
@@ -2077,9 +2105,9 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
         }
       });
 
-      localStorage.setItem(DOC_CACHE_PREFIX + fileId + '_0', JSON.stringify(rows));
-      trackRecentDoc(fileId, fileName);
-      updateUrlWithDocId(fileId, '0');
+      localStorage.setItem(DOC_CACHE_PREFIX + fileId + '_' + gid, JSON.stringify(rows));
+      trackRecentDoc(fileId, fileName, gid);
+      updateUrlWithDocId(fileId, gid);
       if (btnClearDoc) btnClearDoc.style.display = 'block';
       buildItineraryFromRows(rows, true); 
     } catch (e) {
