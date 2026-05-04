@@ -171,7 +171,8 @@
     errorMsg.classList.toggle('visible', !!msg);
   }
 
-  function resetApp() {
+  function resetApp(skipHistory = false) {
+    const skip = skipHistory === true;
     // Clear data model
     parsed = null;
 
@@ -205,11 +206,15 @@
     document.getElementById('panel-drive').classList.add('active');
 
     // Clear data from URL
-    const url = new URL(window.location);
-    url.searchParams.delete('data');
-    url.searchParams.delete('docId');
-    url.searchParams.delete('gid');
-    window.history.replaceState({}, '', url);
+    if (!skip) {
+      const url = new URL(window.location);
+      if (url.searchParams.has('data') || url.searchParams.has('docId')) {
+        url.searchParams.delete('data');
+        url.searchParams.delete('docId');
+        url.searchParams.delete('gid');
+        window.history.pushState({}, '', url);
+      }
+    }
   }
 
   function parseCSV(text) {
@@ -936,7 +941,7 @@
       url.searchParams.delete('docId');
       url.searchParams.delete('gid');
       url.searchParams.set('data', urlSafeBase64);
-      window.history.replaceState({}, '', url);
+      window.history.pushState({}, '', url);
     } catch (e) {
       console.error('Failed to compress and update URL:', e);
     }
@@ -948,7 +953,7 @@
     url.searchParams.set('docId', fileId);
     if (gid !== '0') url.searchParams.set('gid', gid);
     else url.searchParams.delete('gid');
-    window.history.replaceState({}, '', url);
+    window.history.pushState({}, '', url);
   }
 
   async function loadFromUrl() {
@@ -1014,7 +1019,9 @@
       // The auth callbacks will trigger loadFromUrl() again once a token is acquired.
       if (!accessToken) return;
 
-      fetchSheetData(docId, existingName || 'Linked Spreadsheet', gid);
+      fetchSheetData(docId, existingName || 'Linked Spreadsheet', gid, true);
+    } else {
+      resetApp(true);
     }
   }
 
@@ -2085,7 +2092,7 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
     picker.setVisible(true);
   }
 
-  async function fetchSheetData(fileId, fileName, gid = '0') {
+  async function fetchSheetData(fileId, fileName, gid = '0', skipHistory = false) {
     showError(`Fetching "${fileName}"...`);
     try {
       // Use Sheets API v4 to get formatted values and merge metadata from the first tab
@@ -2140,7 +2147,9 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
       localStorage.setItem(DOC_CACHE_PREFIX + fileId + '_' + gid, JSON.stringify(rows));
       h1.textContent = spreadsheetTitle;
       trackRecentDoc(fileId, spreadsheetTitle, gid);
-      updateUrlWithDocId(fileId, gid);
+      if (!skipHistory) {
+        updateUrlWithDocId(fileId, gid);
+      }
       if (btnClearDoc) btnClearDoc.style.display = 'block';
       buildItineraryFromRows(rows, true);
     } catch (e) {
@@ -2523,6 +2532,7 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
 
     recentDocsSort?.addEventListener('change', renderRecentDocs);
 
+    window.addEventListener('popstate', loadFromUrl);
     renderRecentDocs();
     loadFromUrl(); // Load itinerary data from URL if present
   })();
