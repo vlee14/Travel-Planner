@@ -73,23 +73,28 @@
 
       <div id="panel-drive" class="input-panel active">
         <p class="help-text">Select a spreadsheet to import.</p>
-        
+
         <div id="drive-auth-warning" style="margin: 1rem 0;">
-          <button type="button" id="btn-drive-auth" class="btn" style="width:100%; background:var(--surface); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; gap:8px;">
-            <img src="https://fonts.gstatic.com/s/i/productlogos/googleg/v6/24px.svg" alt="" width="18"> Sign in with Google
+          <button type="button" id="btn-drive-auth" class="btn"
+            style="width:100%; background:var(--surface); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; gap:8px;">
+            <img src="https://fonts.gstatic.com/s/i/productlogos/googleg/v6/24px.svg" alt="" width="18"> Sign in with
+            Google
           </button>
         </div>
 
         <div id="drive-manual-input" style="display: none; margin-bottom: 1rem;">
           <label for="drive-url-input">Spreadsheet URL or ID</label>
           <div style="display: flex; gap: 0.5rem;">
-            <input type="text" id="drive-url-input" placeholder="Paste link here..." class="setting-input" style="flex: 1; margin-bottom: 0;">
+            <input type="text" id="drive-url-input" placeholder="Paste link here..." class="setting-input"
+              style="flex: 1; margin-bottom: 0;">
             <button type="button" class="btn btn-primary" id="btn-drive-url-fetch">Load</button>
           </div>
         </div>
 
-        <button type="button" class="btn btn-primary" id="btn-drive-picker" style="width: 100%; display: none; align-items: center; justify-content: center; gap: 8px;">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <button type="button" class="btn btn-primary" id="btn-drive-picker"
+          style="width: 100%; display: none; align-items: center; justify-content: center; gap: 8px;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M22 19V5a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2z"></path>
             <polyline points="7 21 7 3"></polyline>
             <polyline points="17 21 17 3"></polyline>
@@ -101,8 +106,11 @@
 
         <div id="recent-docs-container" style="margin-top: 1.5rem; display: none;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-            <label style="margin-bottom: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Recent Itineraries</label>
-            <select id="recent-docs-sort" style="background: transparent; border: none; color: var(--text-muted); font-size: 0.75rem; cursor: pointer; outline: none; font-family: inherit;">
+            <label
+              style="margin-bottom: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Recent
+              Itineraries</label>
+            <select id="recent-docs-sort"
+              style="background: transparent; border: none; color: var(--text-muted); font-size: 0.75rem; cursor: pointer; outline: none; font-family: inherit;">
               <option value="recent">Sort: Recent</option>
               <option value="name">Sort: Name</option>
               <option value="date">Sort: Trip Date</option>
@@ -224,7 +232,8 @@
           href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer"
           style="float:right; font-weight:normal; font-size:0.9em; color:var(--accent); text-decoration:none;">Get API
           Key &nearr;</a></label>
-      <input type="password" id="setting-api-key" class="setting-input" autocomplete="off" spellcheck="false" placeholder="Enter your API key">
+      <input type="password" id="setting-api-key" class="setting-input" autocomplete="off" spellcheck="false"
+        placeholder="Enter your API key">
 
       <label class="setting-label" for="setting-model">AI Model</label>
       <select id="setting-model" class="setting-select">
@@ -235,16 +244,20 @@
 
       <hr style="margin: 1.5rem 0 1rem; border: 0; border-top: 1px solid var(--border);">
 
-      <div id="google-auth-container" style="margin: 1rem 0; padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg);">
+      <div id="google-auth-container"
+        style="margin: 1rem 0; padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg);">
         <p id="google-status" style="margin:0 0 0.75rem 0; font-size:0.9em; color:var(--text-muted);">Not signed in</p>
-        <button id="btn-google-signin" class="btn" style="width:100%; background:var(--surface); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; gap:8px;">
-          <img src="https://fonts.gstatic.com/s/i/productlogos/googleg/v6/24px.svg" alt="" width="18"> Sign in with Google
+        <button id="btn-google-signin" class="btn"
+          style="width:100%; background:var(--surface); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; gap:8px;">
+          <img src="https://fonts.gstatic.com/s/i/productlogos/googleg/v6/24px.svg" alt="" width="18"> Sign in with
+          Google
         </button>
       </div>
 
       <hr style="margin: 1rem 0; border: 0; border-top: 1px solid var(--border);">
 
-      <button id="btn-clear-doc" class="btn" style="width:100%; margin-bottom:0.75rem; display:none; background:var(--surface); border:1px solid var(--border); color:var(--text);">
+      <button id="btn-clear-doc" class="btn"
+        style="width:100%; margin-bottom:0.75rem; display:none; background:var(--surface); border:1px solid var(--border); color:var(--text);">
         Clear Current Document
       </button>
 

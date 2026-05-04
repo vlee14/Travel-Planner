@@ -10,6 +10,7 @@
   const panels = document.querySelectorAll('.input-panel');
   const viewBtns = document.querySelectorAll('.view-btn[data-view]');
   const themeToggle = document.getElementById('theme-toggle');
+  const homeBtn = document.getElementById('home-btn');
   const h1 = document.querySelector('.header-row h1');
   const shareBtn = document.getElementById('share-btn');
   const searchInput = document.getElementById('search-input');
@@ -137,6 +138,29 @@
   // Initialize theme
   if (currentTheme) updateTheme(currentTheme);
 
+  // Prevent layout shift when switching between short and long pages (scrollbar jump)
+  document.documentElement.style.overflowY = 'scroll';
+
+  // Add Home Button to the left of Theme Toggle if not already in HTML
+  if (themeToggle && !document.getElementById('home-btn')) {
+    // Ensure the button container stays pinned to the right regardless of title length
+    if (themeToggle.parentNode) {
+      themeToggle.parentNode.style.display = 'flex';
+      themeToggle.parentNode.style.alignItems = 'center';
+      themeToggle.parentNode.style.marginLeft = 'auto';
+      themeToggle.parentNode.style.flexShrink = '0';
+    }
+
+    const btn = document.createElement('button');
+    btn.id = 'home-btn';
+    btn.className = themeToggle.className;
+    btn.style.display = 'flex'; // Ensure consistent vertical alignment
+    btn.title = 'Home / Start Over';
+    btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>`;
+    themeToggle.parentNode.insertBefore(btn, themeToggle);
+    btn.onclick = resetApp;
+  }
+
   themeToggle?.addEventListener('click', () => {
     const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
     updateTheme(newTheme);
@@ -160,6 +184,7 @@
     itinerarySection.classList.remove('visible');
     inputSection.style.display = 'block';
     emptyState.style.display = 'block';
+    h1.textContent = 'Travel Itinerary';
     shareBtn.style.display = 'none';
     if (btnClearDoc) btnClearDoc.style.display = 'none';
 
@@ -960,10 +985,15 @@
         showError('Could not load itinerary from URL. The data might be corrupted.');
       }
     } else if (docId) {
+      const metadata = JSON.parse(localStorage.getItem(DOC_METADATA_KEY) || '{}');
+      const existingName = metadata[docId]?.name;
+
       // Attempt to load from cache immediately for better UX
       const cached = localStorage.getItem(DOC_CACHE_PREFIX + docId + '_' + gid);
       if (cached && !parsed) {
-        trackRecentDoc(docId, null, gid); // Update access timestamp
+        trackRecentDoc(docId, existingName, gid); // Update access timestamp
+
+        if (existingName) h1.textContent = existingName;
 
         if (cached.startsWith('[[')) {
           // Cached JSON grid from Sheets API
@@ -984,7 +1014,7 @@
       // The auth callbacks will trigger loadFromUrl() again once a token is acquired.
       if (!accessToken) return;
 
-      fetchSheetData(docId, 'Linked Spreadsheet', gid);
+      fetchSheetData(docId, existingName || 'Linked Spreadsheet', gid);
     }
   }
 
@@ -1853,7 +1883,7 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
     // This handles the "Automatic Login" feature
     google.accounts.id.initialize({
       client_id: googleClientId,
-      auto_select: true, 
+      auto_select: true,
       context: 'signin',
       callback: (response) => {
         // Successful automatic or manual identity verification
@@ -1887,7 +1917,7 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
 
   function trackRecentDoc(fileId, name, gid = '0') {
     const metadata = JSON.parse(localStorage.getItem(DOC_METADATA_KEY) || '{}');
-    
+
     let startDate = metadata[fileId]?.startDate || null;
     let endDate = metadata[fileId]?.endDate || null;
 
@@ -1899,8 +1929,8 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
       }
     }
 
-    metadata[fileId] = { 
-      name: name || metadata[fileId]?.name || 'Untitled Itinerary', 
+    metadata[fileId] = {
+      name: name || metadata[fileId]?.name || 'Untitled Itinerary',
       lastAccessed: Date.now(),
       startDate,
       endDate,
@@ -2006,7 +2036,7 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
         alert('Google Client ID is not configured.');
         return;
       }
-      
+
       initTokenClient();
 
       if (!tokenClient) {
@@ -2031,17 +2061,17 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
   btnDriveUrlFetch?.addEventListener('click', () => {
     const input = driveUrlInput.value.trim();
     if (!input) return;
-    
+
     // Extract File ID (supports /d/ID or /d/e/ID or just the ID)
     const fileIdMatch = input.match(/\/d\/(?:e\/)?([a-zA-Z0-9-_]+)/);
     const gidMatch = input.match(/[#&]gid=([0-9]+)/);
-    
+
     const fileId = fileIdMatch ? fileIdMatch[1] : input;
     const gid = gidMatch ? gidMatch[1] : '0';
 
     // Normalize UI to show the document URL instead of internal export links or just the ID
     driveUrlInput.value = `https://docs.google.com/spreadsheets/d/${fileId}/edit${gid !== '0' ? '#gid=' + gid : ''}`;
-    
+
     fetchSheetData(fileId, 'Manual Entry', gid);
   });
 
@@ -2059,7 +2089,7 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
     showError(`Fetching "${fileName}"...`);
     try {
       // Use Sheets API v4 to get formatted values and merge metadata from the first tab
-      const url = `https://sheets.googleapis.com/v4/spreadsheets/${fileId}?includeGridData=true&fields=sheets(merges,data(rowData(values(formattedValue))))`;
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${fileId}?includeGridData=true&fields=properties.title,sheets(merges,data(rowData(values(formattedValue))))`;
       const response = await fetch(url, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       });
@@ -2069,15 +2099,17 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
         const apiMessage = errorBody.error?.message || 'Ensure it is a Google Sheet and you have permission to view it.';
         throw new Error(`API Status ${response.status}: ${apiMessage}`);
       }
-      
+
       const data = await response.json();
+      const spreadsheetTitle = data.properties?.title || fileName;
+
       // Requirement: Always use the first tab
       const sheet = data.sheets[0];
       if (!sheet) throw new Error('Spreadsheet contains no sheets.');
 
       const rows = [];
       const rowData = sheet.data[0].rowData || [];
-      
+
       // 1. Build initial grid from formatted values
       rowData.forEach((row, r) => {
         rows[r] = [];
@@ -2093,7 +2125,7 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
         const endR = m.endRowIndex || rows.length;
         // Determine column end based on the first row of the merge or total grid width
         const endC = m.endColumnIndex || (rows[startR] ? rows[startR].length : 0);
-        
+
         const val = rows[startR][startC];
         if (val) {
           for (let r = startR; r < endR; r++) {
@@ -2106,10 +2138,11 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
       });
 
       localStorage.setItem(DOC_CACHE_PREFIX + fileId + '_' + gid, JSON.stringify(rows));
-      trackRecentDoc(fileId, fileName, gid);
+      h1.textContent = spreadsheetTitle;
+      trackRecentDoc(fileId, spreadsheetTitle, gid);
       updateUrlWithDocId(fileId, gid);
       if (btnClearDoc) btnClearDoc.style.display = 'block';
-      buildItineraryFromRows(rows, true); 
+      buildItineraryFromRows(rows, true);
     } catch (e) {
       console.error(e);
       showError('Error loading from Sheets: ' + e.message);
@@ -2264,26 +2297,31 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
 
   shareBtn?.addEventListener('click', async () => {
     const longUrl = window.location.href;
+    const urlParams = new URLSearchParams(window.location.search);
+    const isDocIdUrl = urlParams.has('docId');
+
     const originalContent = shareBtn.innerHTML;
     const originalTitle = shareBtn.title;
-
-    shareBtn.innerHTML = '...';
-    shareBtn.disabled = true;
-    shareBtn.title = 'Shortening...';
 
     let success = false;
     let urlToCopy = longUrl;
 
-    try {
-      const res = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(longUrl)}`);
-      if (res.ok) {
-        const shortUrl = await res.text();
-        if (shortUrl.startsWith('http')) {
-          urlToCopy = shortUrl;
+    if (!isDocIdUrl) {
+      shareBtn.innerHTML = '...';
+      shareBtn.disabled = true;
+      shareBtn.title = 'Shortening...';
+
+      try {
+        const res = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(longUrl)}`);
+        if (res.ok) {
+          const shortUrl = await res.text();
+          if (shortUrl.startsWith('http')) {
+            urlToCopy = shortUrl;
+          }
         }
+      } catch (e) {
+        console.error('Could not shorten URL, will copy long URL instead:', e);
       }
-    } catch (e) {
-      console.error('Could not shorten URL, will copy long URL instead:', e);
     }
 
     try {
@@ -2471,7 +2509,7 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
       if (typeof google !== 'undefined' && google.accounts && google.accounts.id && google.accounts.oauth2) {
         clearInterval(waitGsi);
         initTokenClient();
-        
+
         // Use One Tap with a notification listener to debug failures
         google.accounts.id.prompt((notification) => {
           if (notification.isSkippedMoment() || notification.isDismissedMoment()) {
