@@ -30,7 +30,7 @@
   const btnClearDoc = document.getElementById('btn-clear-doc');
   const driveUrlInput = document.getElementById('drive-url-input');
   const btnDriveUrlFetch = document.getElementById('btn-drive-url-fetch');
-  const driveManualInput = document.getElementById('drive-manual-input');
+  const driveManualInput = document.getElementById('google-auth-container');
   const btnSaveSettings = document.getElementById('btn-save-settings');
   const btnClearCache = document.getElementById('btn-clear-cache');
   const aiModal = document.getElementById('ai-modal');
@@ -2215,16 +2215,16 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
       googleStatus.textContent = 'Signed in successfully';
       googleStatus.style.color = 'var(--success)';
       btnGoogleSignIn.innerHTML = `<img src="https://fonts.gstatic.com/s/i/productlogos/googleg/v6/24px.svg" alt="" width="18"> Sign out of Google`;
-      btnDrivePicker.style.display = 'flex';
-      driveManualInput.style.display = 'block';
+      if (driveManualInput) driveManualInput.style.display = 'flex';
+      if (btnDrivePicker) btnDrivePicker.style.display = 'flex';
       const warning = document.getElementById('drive-auth-warning');
       if (warning) warning.style.display = 'none';
     } else {
       googleStatus.textContent = 'Not signed in';
       googleStatus.style.color = 'var(--text-muted)';
       btnGoogleSignIn.innerHTML = `<img src="https://fonts.gstatic.com/s/i/productlogos/googleg/v6/24px.svg" alt="" width="18"> Sign in with Google`;
-      btnDrivePicker.style.display = 'none';
-      driveManualInput.style.display = 'none';
+      if (driveManualInput) driveManualInput.style.display = 'none';
+      if (btnDrivePicker) btnDrivePicker.style.display = 'none';
       const warning = document.getElementById('drive-auth-warning');
       if (warning) warning.style.display = 'block';
       accessToken = null;
