@@ -5,6 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Travel Itinerary</title>
+  <link rel="icon" type="image/png" href="favicon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
@@ -25,6 +26,12 @@
     <div class="header-row">
       <h1>Travel Itinerary</h1>
       <div class="header-actions">
+        <button id="sync-btn" class="btn-icon sync-action-btn" title="Sync spreadsheet" aria-label="Sync spreadsheet" style="display: none;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+        </button>
+        <button id="print-btn" class="btn-icon" title="Print itinerary" aria-label="Print itinerary" style="display: none;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+        </button>
         <button id="share-btn" class="btn-icon" title="Copy shareable link" aria-label="Copy shareable link"
           style="display: none;">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
@@ -34,22 +41,22 @@
             <line x1="12" y1="2" x2="12" y2="15"></line>
           </svg>
         </button>
-        <button id="theme-toggle" class="btn-icon" aria-label="Toggle theme">
+        <button id="theme-toggle" class="btn-icon theme-toggle-btn" aria-label="Toggle theme">
           <svg class="icon-sun" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="5" />
-            <line x1="12" y1="1" x2="12" y2="3" />
-            <line x1="12" y1="21" x2="12" y2="23" />
-            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-            <line x1="1" y1="12" x2="3" y2="12" />
-            <line x1="21" y1="12" x2="23" y2="12" />
-            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
           </svg>
           <svg class="icon-moon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
           </svg>
         </button>
         <button id="settings-btn" class="btn-icon" title="Settings" aria-label="Settings">
@@ -77,43 +84,43 @@
         <div id="drive-auth-warning" style="margin: 1rem 0;">
           <button type="button" id="btn-drive-auth" class="btn"
             style="width:100%; background:var(--surface); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; gap:8px;">
-            <img src="https://fonts.gstatic.com/s/i/productlogos/googleg/v6/24px.svg" alt="" width="18"> Sign in with
-            Google
+            <img src="https://fonts.gstatic.com/s/i/productlogos/googleg/v6/24px.svg" alt="" width="18"> Authorize Google Drive Access
           </button>
         </div>
 
-        <div id="drive-manual-input" style="display: none; margin-bottom: 1rem;">
-          <label for="drive-url-input">Spreadsheet URL or ID</label>
-          <div style="display: flex; gap: 0.5rem;">
-            <input type="text" id="drive-url-input" placeholder="Paste link here..." class="setting-input"
-              style="flex: 1; margin-bottom: 0;">
-            <button type="button" class="btn btn-primary" id="btn-drive-url-fetch">Load</button>
+        <div id="google-auth-container" style="display:none; flex-direction:column; gap:0.75rem;">
+          <div style="display:flex; gap:0.5rem; width:100%;">
+            <button type="button" id="btn-drive-picker" class="btn btn-primary" style="flex:1;">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                style="margin-right:6px;">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+              </svg>
+              Select Spreadsheet from Drive
+            </button>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:0.5rem; margin-top:0.25rem;">
+            <div style="flex:1; height:1px; background:var(--border);"></div>
+            <span style="font-size:0.8rem; color:var(--text-muted); font-weight:500;">OR PASTE LINK</span>
+            <div style="flex:1; height:1px; background:var(--border);"></div>
+          </div>
+
+          <div style="display:flex; gap:0.5rem; width:100%;">
+            <input type="text" id="drive-url-input" class="setting-input"
+              placeholder="Paste Google Sheet URL (e.g. https://docs.google.com/spreadsheets/d/...)"
+              style="margin-bottom:0; flex:1;">
+            <button type="button" id="btn-drive-url-fetch" class="btn" style="white-space:nowrap;">Load Sheet</button>
           </div>
         </div>
 
-        <button type="button" class="btn btn-primary" id="btn-drive-picker"
-          style="width: 100%; display: none; align-items: center; justify-content: center; gap: 8px;">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M22 19V5a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2z"></path>
-            <polyline points="7 21 7 3"></polyline>
-            <polyline points="17 21 17 3"></polyline>
-            <line x1="2" y1="9" x2="22" y2="9"></line>
-            <line x1="2" y1="15" x2="22" y2="15"></line>
-          </svg>
-          Select Spreadsheet
-        </button>
-
         <div id="recent-docs-container" style="margin-top: 1.5rem; display: none;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-            <label
-              style="margin-bottom: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Recent
-              Itineraries</label>
-            <select id="recent-docs-sort"
-              style="background: transparent; border: none; color: var(--text-muted); font-size: 0.75rem; cursor: pointer; outline: none; font-family: inherit;">
-              <option value="recent">Sort: Recent</option>
-              <option value="name">Sort: Name</option>
-              <option value="date">Sort: Trip Date</option>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+            <h3 style="font-size: 0.95rem; font-weight: 600; margin: 0; color: var(--text-muted);">Recent Documents</h3>
+            <select id="recent-docs-sort" style="font-size: 0.8rem; padding: 2px 6px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--text-muted);">
+              <option value="recent">Sort by Recently Opened</option>
+              <option value="date">Sort by Trip Date</option>
+              <option value="name">Sort by Name</option>
             </select>
           </div>
           <div id="recent-docs-list" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
@@ -121,16 +128,22 @@
       </div>
 
       <div id="panel-paste" class="input-panel">
-        <label for="csv-input">Paste table data (e.g. from Google Sheets: copy cells, then paste here)</label>
-        <textarea id="csv-input"
-          placeholder="Paste your sheet here. First row = locations, second row = dates, first column = times, rest = content.&#10;Example:&#10;&#9;,Tokyo,Osaka&#10;&#9;,Mar 15,Mar 16&#10;9:00,Breakfast,Museum&#10;14:00,Shrine,Travel"></textarea>
-        <p class="help-text">Tip: In Google Sheets, select your range and copy (Ctrl+C). The first row should be
-          locations, second row dates, first column times.</p>
-        <button type="button" class="btn btn-primary" id="btn-parse">Build itinerary</button>
+        <p class="help-text">Paste tab-separated values or raw table HTML directly from Google Sheets or Excel.</p>
+        <textarea id="csv-input" placeholder="Paste sheet content here..."></textarea>
+        <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+          <button type="button" id="btn-parse" class="btn btn-primary">Build Itinerary</button>
+        </div>
       </div>
 
       <div id="error-msg" class="error-msg" role="alert"></div>
     </section>
+
+    <div id="trip-progress-bar" style="display:none;" aria-label="Trip progress">
+      <div class="trip-progress-inner">
+        <span id="trip-progress-label"></span>
+        <div class="trip-progress-track"><div id="trip-progress-fill" class="trip-progress-fill"></div></div>
+      </div>
+    </div>
 
     <section id="itinerary-section" class="itinerary-section">
       <div class="view-controls">
@@ -180,7 +193,12 @@
         </div>
       </div>
 
-      <div id="itinerary-map" class="itinerary-map"></div>
+      <div id="itinerary-map" class="itinerary-map">
+        <button id="map-route-btn" class="map-route-btn" title="Open full route in Google Maps" aria-label="Open full route in Google Maps" style="display:none;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>
+          Open Route in Google Maps
+        </button>
+      </div>
       <div id="itinerary-calendar" class="itinerary-calendar"></div>
 
       <div id="itinerary-list" class="itinerary-list">
@@ -213,13 +231,48 @@
       </div>
     </section>
 
-    <div id="empty-state" class="empty-state"></div>
+    <div id="empty-state" class="empty-state">
+      <div class="empty-state-hero">
+        <svg class="empty-state-illustration" viewBox="0 0 240 160" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <ellipse cx="120" cy="148" rx="88" ry="10" fill="var(--border)"/>
+          <rect x="52" y="80" width="136" height="60" rx="10" fill="var(--surface)" stroke="var(--border)" stroke-width="2"/>
+          <rect x="64" y="92" width="30" height="8" rx="4" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1"/>
+          <rect x="64" y="106" width="52" height="6" rx="3" fill="var(--border)"/>
+          <rect x="64" y="118" width="40" height="6" rx="3" fill="var(--border)"/>
+          <rect x="146" y="92" width="30" height="8" rx="4" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1"/>
+          <rect x="146" y="106" width="26" height="6" rx="3" fill="var(--border)"/>
+          <rect x="146" y="118" width="36" height="6" rx="3" fill="var(--border)"/>
+          <rect x="74" y="50" width="92" height="38" rx="8" fill="var(--accent)" opacity="0.9"/>
+          <text x="120" y="73" text-anchor="middle" font-size="22" fill="white">✈</text>
+          <circle cx="42" cy="55" r="12" fill="var(--surface)" stroke="var(--border)" stroke-width="2"/>
+          <text x="42" y="59" text-anchor="middle" font-size="12" fill="var(--accent)">☀</text>
+          <circle cx="198" cy="70" r="10" fill="var(--surface)" stroke="var(--border)" stroke-width="2"/>
+          <text x="198" y="74" text-anchor="middle" font-size="11" fill="var(--accent)">📍</text>
+        </svg>
+        <h2 class="empty-state-heading">Plan your next adventure</h2>
+        <p class="empty-state-sub">Import a Google Sheets itinerary or paste your data to get started.</p>
+      </div>
+    </div>
   </div>
 
   <div id="settings-modal">
     <div class="settings-modal-content">
       <button id="settings-close" class="ai-modal-close-btn" aria-label="Close">&times;</button>
       <h3 style="margin-top:0">Settings</h3>
+
+      <label class="setting-label">Preferences</label>
+      <div class="settings-pref-row">
+        <button type="button" class="pref-btn theme-toggle-btn" aria-label="Toggle theme">
+          <span class="pref-btn-icon">
+            <svg class="icon-sun" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+            <svg class="icon-moon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+          </span>
+          <span class="theme-toggle-label">Light Mode</span>
+        </button>
+        <button type="button" class="pref-btn temp-unit-btn" aria-label="Toggle temperature unit">
+          <span class="temp-unit-label">Fahrenheit (°F)</span>
+        </button>
+      </div>
 
       <label class="setting-label" for="setting-vc-key">Visual Crossing API Key <a
           href="https://www.visualcrossing.com/account/" target="_blank" rel="noopener noreferrer"
@@ -249,8 +302,7 @@
         <p id="google-status" style="margin:0 0 0.75rem 0; font-size:0.9em; color:var(--text-muted);">Not signed in</p>
         <button id="btn-google-signin" class="btn"
           style="width:100%; background:var(--surface); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; gap:8px;">
-          <img src="https://fonts.gstatic.com/s/i/productlogos/googleg/v6/24px.svg" alt="" width="18"> Sign in with
-          Google
+          <img src="https://fonts.gstatic.com/s/i/productlogos/googleg/v6/24px.svg" alt="" width="18"> Sign in with Google
         </button>
       </div>
 
@@ -262,8 +314,7 @@
       </button>
 
       <button id="btn-clear-cache" class="btn"
-        style="width:100%; background:var(--surface); border:1px solid var(--border); color:var(--text);">Clear Data
-        Cache</button>
+        style="width:100%; background:var(--surface); border:1px solid var(--border); color:var(--text);">Clear Data Cache</button>
     </div>
   </div>
 

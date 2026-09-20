@@ -13,6 +13,8 @@
   const homeBtn = document.getElementById('home-btn');
   const h1 = document.querySelector('.header-row h1');
   const shareBtn = document.getElementById('share-btn');
+  const printBtn = document.getElementById('print-btn');
+  const syncBtn = document.getElementById('sync-btn');
   const searchInput = document.getElementById('search-input');
   const settingsBtn = document.getElementById('settings-btn');
   const settingsModal = document.getElementById('settings-modal');
@@ -41,6 +43,10 @@
   const btnGenerateChecklist = document.getElementById('btn-generate-checklist');
   const packingContent = document.getElementById('packing-content');
   const packingTabs = document.querySelectorAll('.packing-tab');
+  const tripProgressBar = document.getElementById('trip-progress-bar');
+  const tripProgressLabel = document.getElementById('trip-progress-label');
+  const tripProgressFill = document.getElementById('trip-progress-fill');
+  const mapRouteBtn = document.getElementById('map-route-btn');
 
   let parsed = null; // { locations, dates, rows: [ { time, cells[] } ] }
   let map = null;
@@ -50,6 +56,11 @@
   const mapPoints = []; // Array of {lat, lon}
   const mapMarkers = {}; // Object to track unique locations
   let hasScrolledToToday = false
+  let currentTempUnit = 'F'; // 'F' or 'C'
+  let autoSyncInterval = null; // timer handle for auto-sync
+  let lastSyncedDocId = null; // track which doc is auto-synced
+  let lastSyncedGid = '0';
+  let lastSyncedTime = null; // timestamp of last successful sync
   const GEMINI_API_KEY_STORAGE = 'gemini_api_key';
   const VC_API_KEY_STORAGE = 'visual_crossing_key';
   const WEATHER_CACHE_PREFIX = 'weather_cache_v1_';
@@ -59,18 +70,84 @@
   const PACKING_COUNT_STORAGE = 'packing_travelers_count';
   const DOC_CACHE_PREFIX = 'doc_cache_v1_';
   const DOC_METADATA_KEY = 'doc_metadata_v1';
+  const EVENT_CHECK_PREFIX = 'event_chk_v1_';
+  const TEMP_UNIT_STORAGE = 'temp_unit';
+
+  const db = {
+    get(key, defaultValue = null) {
+      try {
+        const val = localStorage.getItem(key);
+        return val !== null ? val : defaultValue;
+      } catch (e) {
+        console.warn(`Error reading from localStorage key "${key}":`, e);
+        return defaultValue;
+      }
+    },
+    set(key, value) {
+      try {
+        localStorage.setItem(key, value);
+        return true;
+      } catch (e) {
+        console.warn(`Error writing to localStorage key "${key}":`, e);
+        if (e.name === 'QuotaExceededError' || e.code === 22) {
+          db.evictOldCache();
+          try {
+            localStorage.setItem(key, value);
+            return true;
+          } catch (retryError) {
+            console.error('Eviction failed to free enough space:', retryError);
+          }
+        }
+        return false;
+      }
+    },
+    remove(key) {
+      try {
+        localStorage.removeItem(key);
+        return true;
+      } catch (e) {
+        console.warn(`Error removing localStorage key "${key}":`, e);
+        return false;
+      }
+    },
+    evictOldCache() {
+      try {
+        const keys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && (key.startsWith(WEATHER_CACHE_PREFIX) || key.startsWith(AI_CACHE_PREFIX))) {
+            let timestamp = 0;
+            try {
+              const data = JSON.parse(localStorage.getItem(key));
+              if (data && data.timestamp) timestamp = data.timestamp;
+            } catch (err) {}
+            keys.push({ key, timestamp });
+          }
+        }
+        keys.sort((a, b) => a.timestamp - b.timestamp);
+        const toRemove = keys.slice(0, Math.ceil(keys.length * 0.3));
+        toRemove.forEach(item => {
+          localStorage.removeItem(item.key);
+        });
+        console.info(`Evicted ${toRemove.length} old cache entries due to quota limits.`);
+      } catch (e) {
+        console.error('Failed to evict old cache:', e);
+      }
+    }
+  };
 
   // Initialize settings immediately from storage to prevent empty fields on quick click
-  let geminiApiKey = localStorage.getItem(GEMINI_API_KEY_STORAGE);
-  let visualCrossingKey = localStorage.getItem(VC_API_KEY_STORAGE);
+  let geminiApiKey = db.get(GEMINI_API_KEY_STORAGE);
+  let visualCrossingKey = db.get(VC_API_KEY_STORAGE);
   // Hardcoded default Client ID for easier setup
   let googleClientId = '663334830027-1182pamonrcagb0sgvg46jserh7v5jqg.apps.googleusercontent.com';
   let tokenClient = null;
   let accessToken = null;
-  let geminiModelName = localStorage.getItem('gemini_model') || 'gemini-3.1-flash-lite-preview';
+  let geminiModelName = db.get('gemini_model', 'gemini-3.1-flash-lite-preview');
   let aiConversationHistory = [];
   let currentAiCacheKey = null;
   let currentChecklistType = 'packing'; // 'packing' or 'apps'
+  currentTempUnit = db.get(TEMP_UNIT_STORAGE, 'F');
 
   // Pre-populate setting inputs so they are ready before the modal is even opened
   if (settingApiKey) settingApiKey.value = geminiApiKey || '';
@@ -81,7 +158,7 @@
   }
 
   // Theme Logic
-  let currentTheme = localStorage.getItem('theme') || 'light';
+  let currentTheme = db.get('theme', 'light');
   const htmlEl = document.documentElement;
 
   function renderMarkdown(text, keyOverride) {
@@ -105,7 +182,7 @@
 
         if (storageKey) {
           checkbox.dataset.key = storageKey;
-          const stored = localStorage.getItem(storageKey);
+          const stored = db.get(storageKey);
           if (stored !== null) {
             checkbox.checked = stored === 'true';
           }
@@ -125,7 +202,7 @@
   function updateTheme(theme) {
     currentTheme = theme;
     htmlEl.setAttribute('data-theme', theme);
-    localStorage.setItem('theme', theme);
+    db.set('theme', theme);
     if (mapTileLayer) {
       const isLight = theme === 'light';
       const url = isLight
@@ -135,35 +212,49 @@
     }
   }
 
-  // Initialize theme
+  function updateTheme(theme) {
+    currentTheme = theme;
+    htmlEl.setAttribute('data-theme', theme);
+    db.set('theme', theme);
+    document.querySelectorAll('.theme-toggle-label').forEach(el => {
+      el.textContent = theme === 'dark' ? 'Dark Mode' : 'Light Mode';
+    });
+    if (mapTileLayer) {
+      const isLight = theme === 'light';
+      const url = isLight
+        ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
+        : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+      mapTileLayer.setUrl(url);
+    }
+  }
+
+  function updateTempUnitUI() {
+    document.querySelectorAll('.temp-unit-label').forEach(el => {
+      el.textContent = currentTempUnit === 'C' ? 'Celsius (°C)' : 'Fahrenheit (°F)';
+    });
+  }
+
+  // Initialize theme and temp unit UI
   if (currentTheme) updateTheme(currentTheme);
+  updateTempUnitUI();
 
   // Prevent layout shift when switching between short and long pages (scrollbar jump)
   document.documentElement.style.overflowY = 'scroll';
 
-  // Add Home Button to the left of Theme Toggle if not already in HTML
-  if (themeToggle && !document.getElementById('home-btn')) {
-    // Ensure the button container stays pinned to the right regardless of title length
-    if (themeToggle.parentNode) {
-      themeToggle.parentNode.style.display = 'flex';
-      themeToggle.parentNode.style.alignItems = 'center';
-      themeToggle.parentNode.style.marginLeft = 'auto';
-      themeToggle.parentNode.style.flexShrink = '0';
-    }
+  document.querySelectorAll('.theme-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      updateTheme(newTheme);
+    });
+  });
 
-    const btn = document.createElement('button');
-    btn.id = 'home-btn';
-    btn.className = themeToggle.className;
-    btn.style.display = 'flex'; // Ensure consistent vertical alignment
-    btn.title = 'Home / Start Over';
-    btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>`;
-    themeToggle.parentNode.insertBefore(btn, themeToggle);
-    btn.onclick = resetApp;
-  }
-
-  themeToggle?.addEventListener('click', () => {
-    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-    updateTheme(newTheme);
+  document.querySelectorAll('.temp-unit-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      currentTempUnit = currentTempUnit === 'F' ? 'C' : 'F';
+      db.set(TEMP_UNIT_STORAGE, currentTempUnit);
+      updateTempUnitUI();
+      rerenderAllWeatherBadges();
+    });
   });
 
   function showError(msg) {
@@ -187,7 +278,16 @@
     emptyState.style.display = 'block';
     h1.textContent = 'Travel Itinerary';
     shareBtn.style.display = 'none';
+    if (printBtn) printBtn.style.display = 'none';
+    if (syncBtn) syncBtn.style.display = 'none';
+    if (tripProgressBar) tripProgressBar.style.display = 'none';
+    const syncLabel = document.getElementById('sync-status-label');
+    if (syncLabel) syncLabel.style.display = 'none';
     if (btnClearDoc) btnClearDoc.style.display = 'none';
+
+    // Stop auto-sync
+    if (autoSyncInterval) { clearInterval(autoSyncInterval); autoSyncInterval = null; }
+    lastSyncedDocId = null;
 
     // Clear rendered content
     listContent.innerHTML = '';
@@ -335,6 +435,7 @@
     emptyState.style.display = 'none';
     inputSection.style.display = 'none';
     shareBtn.style.display = 'flex';
+    if (printBtn) printBtn.style.display = 'flex';
 
     // Switch to calendar view by default, or list view on small screens
     if (window.innerWidth < 768) {
@@ -345,6 +446,7 @@
 
     initMap();
     fetchAllWeather();
+    renderTripProgress();
 
     if (!fromUrl && csvTextForUrl) {
       updateUrlWithData(csvTextForUrl);
@@ -355,6 +457,9 @@
     const docId = urlParams.get('docId');
     if (docId) {
       trackRecentDoc(docId);
+      if (syncBtn && lastSyncedDocId === docId) syncBtn.style.display = 'flex';
+    } else if (syncBtn) {
+      syncBtn.style.display = 'none';
     }
   }
 
@@ -623,6 +728,29 @@
         titleDiv.dataset.date = dateLabel;
         titleDiv.innerHTML = `<span>${escapeHtml(dateLabel)}</span>`;
 
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'btn-copy-day';
+        copyBtn.title = 'Copy day plan';
+        copyBtn.setAttribute('aria-label', 'Copy day plan');
+        copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
+        copyBtn.onclick = async (e) => {
+          e.stopPropagation();
+          const lines = [`${dateLabel} — ${run.locName}`];
+          if (hotelForDay) lines.push(`Hotel: ${hotelForDay}`);
+          events.forEach(({ time, content: evtContent }) => {
+            lines.push(`${time} - ${getTextContent(evtContent)}`);
+          });
+          notes.forEach(n => lines.push(`Note: ${getTextContent(n.content)}`));
+          try {
+            await navigator.clipboard.writeText(lines.join('\n'));
+            copyBtn.classList.add('copied');
+            setTimeout(() => copyBtn.classList.remove('copied'), 2000);
+          } catch (err) {
+            console.error('Copy failed:', err);
+          }
+        };
+        titleDiv.appendChild(copyBtn);
+
         if (notes.length > 0) {
           const btn = document.createElement('button');
           btn.className = 'day-notes-btn';
@@ -666,13 +794,37 @@
         titleDiv.appendChild(suggestBtn);
 
         events.forEach(({ time, content }) => {
-          const eventCard = document.createElement('div');
-          eventCard.className = 'event-card';
-          eventCard.innerHTML = `
-            <span class="event-time">${escapeHtml(time)}</span>
-            <span class="event-content">${linkifyAndSanitize(content)}</span>
-          `;
+          const plainContent = getTextContent(content);
+          const checkKey = `${EVENT_CHECK_PREFIX}${encodeURIComponent(run.locName)}_${encodeURIComponent(dateLabel)}_${encodeURIComponent(time)}_${encodeURIComponent(plainContent)}`;
+          const isChecked = db.get(checkKey) === 'true';
 
+          const eventCard = document.createElement('div');
+          eventCard.className = isChecked ? 'event-card checked' : 'event-card';
+
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.className = 'event-card-checkbox';
+          checkbox.dataset.key = checkKey;
+          checkbox.checked = isChecked;
+          checkbox.title = 'Mark as done';
+          checkbox.setAttribute('aria-label', 'Mark activity as done');
+          checkbox.onchange = (e) => {
+            e.stopPropagation();
+            db.set(checkKey, checkbox.checked ? 'true' : 'false');
+            eventCard.classList.toggle('checked', checkbox.checked);
+          };
+
+          const timeSpan = document.createElement('span');
+          timeSpan.className = 'event-time';
+          timeSpan.textContent = time;
+
+          const contentSpan = document.createElement('span');
+          contentSpan.className = 'event-content';
+          contentSpan.innerHTML = linkifyAndSanitize(content);
+
+          eventCard.appendChild(checkbox);
+          eventCard.appendChild(timeSpan);
+          eventCard.appendChild(contentSpan);
           dayDiv.appendChild(eventCard);
         });
         daysContainer.appendChild(dayDiv);
@@ -894,6 +1046,7 @@
     mapPoints.length = 0;
     for (const key in mapMarkers) delete mapMarkers[key];
     polyline = L.polyline([], { color: 'var(--accent)', weight: 3 }).addTo(mapLayerGroup);
+    if (mapRouteBtn) mapRouteBtn.style.display = 'none';
   }
 
   function addMapLocation(name, lat, lon) {
@@ -918,6 +1071,7 @@
       // Add some padding
       map.fitBounds(bounds, { padding: [50, 50], maxZoom: 12 });
     }
+    updateMapRouteButton();
   }
 
   async function updateUrlWithData(csvText) {
@@ -990,11 +1144,12 @@
         showError('Could not load itinerary from URL. The data might be corrupted.');
       }
     } else if (docId) {
-      const metadata = JSON.parse(localStorage.getItem(DOC_METADATA_KEY) || '{}');
-      const existingName = metadata[docId]?.name;
+      const metadata = JSON.parse(db.get(DOC_METADATA_KEY, '{}'));
+      const key = `${docId}_${gid}`;
+      const existingName = metadata[key]?.name;
 
       // Attempt to load from cache immediately for better UX
-      const cached = localStorage.getItem(DOC_CACHE_PREFIX + docId + '_' + gid);
+      const cached = db.get(DOC_CACHE_PREFIX + key);
       if (cached && !parsed) {
         trackRecentDoc(docId, existingName, gid); // Update access timestamp
 
@@ -1008,6 +1163,7 @@
           buildItinerary(cached, true);
         }
         if (btnClearDoc) btnClearDoc.style.display = 'block';
+        enableSheetSync(docId, gid);
       }
 
       if (!googleClientId) {
@@ -1025,15 +1181,44 @@
     }
   }
 
-  function parseDateForSort(label) {
+  function detectItineraryYear(dates) {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    if (!dates || !dates.length) return currentYear;
+
+    for (let i = 1; i < dates.length; i++) {
+      const s = (dates[i] || '').toString();
+      const m = s.match(/\b(202[0-9]|203[0-9])\b/);
+      if (m) return parseInt(m[1], 10);
+    }
+
+    if (h1 && h1.textContent) {
+      const m = h1.textContent.match(/\b(202[0-9]|203[0-9])\b/);
+      if (m) return parseInt(m[1], 10);
+    }
+
+    for (let i = 1; i < dates.length; i++) {
+      const s = (dates[i] || '').toString().trim();
+      if (!s) continue;
+      const testD = new Date(s);
+      if (!isNaN(testD.getTime())) {
+        testD.setFullYear(currentYear);
+        if ((now.getTime() - testD.getTime()) > 30 * 86400000) {
+          return currentYear + 1;
+        }
+      }
+    }
+
+    return currentYear;
+  }
+
+  function parseDateForSort(label, fallbackYear = null) {
     const s = (label || '').toString().trim();
     if (!s) return Infinity;
-    const d = new Date(s);
-    if (!isNaN(d.getTime())) return d.getTime();
-    const match = s.match(/^(\w{3,})\s+(\d{1,2})$/i);
-    if (match) {
-      const d2 = new Date(match[1] + ' ' + match[2] + ', 2000');
-      if (!isNaN(d2.getTime())) return d2.getTime();
+    const smartYmd = parseSmartDate(s, fallbackYear);
+    if (smartYmd) {
+      const parts = smartYmd.split('-').map(Number);
+      return new Date(parts[0], parts[1] - 1, parts[2]).getTime();
     }
     return Infinity;
   }
@@ -1052,23 +1237,182 @@
     return h * 60 + min;
   }
 
-  function parseSmartDate(str) {
+  function parseSmartDate(str, fallbackYear = null) {
     const s = (str || '').toString().trim();
     if (!s) return null;
     const now = new Date();
+
+    const yrMatch = s.match(/\b(202[0-9]|203[0-9])\b/);
+    const explicitYear = yrMatch ? parseInt(yrMatch[1], 10) : null;
+    const baseYear = explicitYear || fallbackYear || (parsed && parsed.dates ? detectItineraryYear(parsed.dates) : now.getFullYear());
+
     let d = new Date(s);
-    // Handle Month Day format without year (defaults to 2001 or current)
-    const match = s.match(/^([a-zA-Z]{3,})\s+(\d{1,2})$/i);
-    if (match) {
-      d = new Date(`${match[1]} ${match[2]}, ${now.getFullYear()}`);
-    } else if (!isNaN(d.getTime()) && d.getFullYear() < 2020) {
-      d.setFullYear(now.getFullYear());
+    if (isNaN(d.getTime()) || !yrMatch) {
+      const cleanStr = s.replace(/^[a-zA-Z]{3,}\s*,?\s*/, '');
+      const testWithYear = new Date(`${cleanStr}, ${baseYear}`);
+      if (!isNaN(testWithYear.getTime())) {
+        d = testWithYear;
+      } else if (!isNaN(d.getTime())) {
+        d.setFullYear(baseYear);
+      }
+    } else if (explicitYear) {
+      d.setFullYear(explicitYear);
     }
+
     if (isNaN(d.getTime())) return null;
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
     return `${y}-${m}-${day}`;
+  }
+
+  function formatTemp(fahrenheit) {
+    const f = Math.round(fahrenheit);
+    if (currentTempUnit === 'C') {
+      return `${Math.round((f - 32) * 5 / 9)}°C`;
+    }
+    return `${f}°F`;
+  }
+
+  function formatTempPair(tempmax, tempmin) {
+    const hi = Math.round(tempmax);
+    const lo = Math.round(tempmin);
+    if (hi === lo) return formatTemp(hi);
+    if (currentTempUnit === 'C') {
+      return `${formatTemp(hi)} / ${formatTemp(lo)}`;
+    }
+    return `${hi}°F / ${lo}°F`;
+  }
+
+  function getTripDateRange() {
+    if (!parsed) return null;
+    const timestamps = [];
+    for (let i = 1; i < parsed.dates.length; i++) {
+      const d = (parsed.dates[i] || '').trim();
+      const loc = (parsed.locations[i] || '').trim();
+      if (d && loc) {
+        const ts = parseDateForSort(d);
+        if (ts !== Infinity) timestamps.push(ts);
+      }
+    }
+    if (!timestamps.length) return null;
+    timestamps.sort((a, b) => a - b);
+    const startDate = new Date(timestamps[0]);
+    startDate.setHours(0, 0, 0, 0);
+    const endDate = new Date(timestamps[timestamps.length - 1]);
+    endDate.setHours(0, 0, 0, 0);
+    const totalDays = Math.round((endDate - startDate) / 86400000) + 1;
+    return { startDate, endDate, totalDays };
+  }
+
+  function renderTripProgress() {
+    if (!tripProgressBar || !tripProgressLabel || !tripProgressFill) return;
+    const range = getTripDateRange();
+    if (!range) {
+      tripProgressBar.style.display = 'none';
+      return;
+    }
+    const { startDate, endDate, totalDays } = range;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayTs = today.getTime();
+    let label;
+    let fillPct;
+
+    if (todayTs < startDate.getTime()) {
+      const daysUntil = Math.round((startDate - today) / 86400000);
+      label = daysUntil === 1 ? 'Trip starts tomorrow' : `Trip starts in ${daysUntil} days`;
+      fillPct = 0;
+    } else if (todayTs > endDate.getTime()) {
+      label = 'Trip completed';
+      fillPct = 100;
+    } else {
+      const currentDay = Math.round((todayTs - startDate.getTime()) / 86400000) + 1;
+      label = `Day ${currentDay} of ${totalDays}`;
+      fillPct = Math.min(100, (currentDay / totalDays) * 100);
+    }
+
+    tripProgressLabel.textContent = label;
+    tripProgressFill.style.width = `${fillPct}%`;
+    tripProgressBar.style.display = 'block';
+  }
+
+  function updateSyncStatusLabel() {
+    if (!lastSyncedDocId || !lastSyncedTime) {
+      document.querySelectorAll('.sync-btn-text').forEach(el => el.textContent = 'Sync Spreadsheet');
+      document.querySelectorAll('.sync-action-btn').forEach(btn => btn.title = 'Sync spreadsheet');
+      return;
+    }
+    const mins = Math.floor((Date.now() - lastSyncedTime) / 60000);
+    const statusText = mins < 1 ? 'Synced just now' : `Synced ${mins}m ago`;
+    document.querySelectorAll('.sync-btn-text').forEach(el => el.textContent = `Sync Spreadsheet (${statusText})`);
+    document.querySelectorAll('.sync-action-btn').forEach(btn => btn.title = `Sync spreadsheet (${statusText})`);
+  }
+
+  function enableSheetSync(docId, gid = '0') {
+    lastSyncedDocId = docId;
+    lastSyncedGid = gid;
+    lastSyncedTime = Date.now();
+    document.querySelectorAll('.sync-action-btn').forEach(btn => btn.style.display = 'flex');
+    updateSyncStatusLabel();
+    if (autoSyncInterval) clearInterval(autoSyncInterval);
+    autoSyncInterval = setInterval(() => {
+      updateSyncStatusLabel();
+      if (accessToken && lastSyncedDocId) {
+        fetchSheetData(lastSyncedDocId, h1.textContent, lastSyncedGid, true, true);
+      }
+    }, 5 * 60 * 1000);
+  }
+
+  function updateMapRouteButton() {
+    if (!mapRouteBtn) return;
+    const stops = getOrderedMapStops();
+    mapRouteBtn.style.display = stops.length >= 2 ? 'flex' : 'none';
+  }
+
+  function getOrderedMapStops() {
+    const stops = [];
+    const seen = new Set();
+    if (parsed) {
+      for (let i = 1; i < parsed.locations.length; i++) {
+        const loc = (parsed.locations[i] || '').trim();
+        const date = (parsed.dates[i] || '').trim();
+        if (!loc || !date || seen.has(loc)) continue;
+        const marker = mapMarkers[loc];
+        if (marker) {
+          const { lat, lng } = marker.getLatLng();
+          stops.push({ lat, lng, loc });
+          seen.add(loc);
+        }
+      }
+    }
+    if (stops.length < 2 && mapPoints.length >= 2) {
+      const fallback = [];
+      const seenCoords = new Set();
+      mapPoints.forEach(([lat, lon]) => {
+        const key = `${lat.toFixed(4)},${lon.toFixed(4)}`;
+        if (!seenCoords.has(key)) {
+          fallback.push({ lat, lng: lon });
+          seenCoords.add(key);
+        }
+      });
+      return fallback;
+    }
+    return stops;
+  }
+
+  function buildGoogleMapsRouteUrl() {
+    const stops = getOrderedMapStops();
+    if (stops.length < 2) return null;
+    const fmt = (s) => `${s.lat},${s.lng}`;
+    const origin = encodeURIComponent(fmt(stops[0]));
+    const destination = encodeURIComponent(fmt(stops[stops.length - 1]));
+    let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=driving`;
+    if (stops.length > 2) {
+      const waypoints = stops.slice(1, -1).map(fmt).join('|');
+      url += `&waypoints=${encodeURIComponent(waypoints)}`;
+    }
+    return url;
   }
 
   async function getCoordinates(location) {
@@ -1131,7 +1475,7 @@
     const cacheKey = `${WEATHER_CACHE_PREFIX}${source}_${encodeURIComponent(loc)}_${start}_${end || ''}`;
 
     try {
-      const cachedJson = localStorage.getItem(cacheKey);
+      const cachedJson = db.get(cacheKey);
       if (cachedJson) {
         const cached = JSON.parse(cachedJson);
         if (Date.now() - cached.timestamp < WEATHER_CACHE_EXPIRY) {
@@ -1171,7 +1515,7 @@
             isHistorical: false // VC handles mixed forecast/history automatically
           }));
           const result = { days, timezone };
-          try { localStorage.setItem(cacheKey, JSON.stringify({ timestamp: Date.now(), data: result, coords })); } catch (e) { }
+          db.set(cacheKey, JSON.stringify({ timestamp: Date.now(), data: result, coords }));
           return result;
         }
       } catch (e) {
@@ -1211,7 +1555,7 @@
       const p = dateStr.split('-').map(Number);
       const dObj = new Date(p[0], p[1] - 1, p[2]);
       const diffDays = (dObj - now) / (1000 * 60 * 60 * 24);
-      let isDayHistorical = diffDays > 14;
+      let isDayHistorical = diffDays < 0 || diffDays > 14;
       let dayData = null;
 
       // Try Forecast
@@ -1272,7 +1616,7 @@
     }
 
     const result = { days, timezone };
-    try { localStorage.setItem(cacheKey, JSON.stringify({ timestamp: Date.now(), data: result, coords })); } catch (e) { }
+    db.set(cacheKey, JSON.stringify({ timestamp: Date.now(), data: result, coords }));
     return result;
   }
 
@@ -1300,7 +1644,7 @@
             sumEl.style.color = 'var(--text)';
             dateRangeEl.parentNode.insertBefore(sumEl, dateRangeEl.nextSibling);
           }
-          const tempStr = minHigh === maxHigh ? `${maxHigh}°F` : `${minHigh}°F–${maxHigh}°F`;
+          const tempStr = minHigh === maxHigh ? formatTemp(maxHigh) : `${formatTemp(minHigh)}–${formatTemp(maxHigh)}`;
           sumEl.innerHTML = `${iconsHtml} <b>${tempStr}</b>`;
 
           if (days.some(d => d.isHistorical)) {
@@ -1350,16 +1694,16 @@
         const tDate = smartDate;
         const dayData = days.find(d => d.datetime === tDate);
         if (dayData) {
-          title.dataset.weatherSummary = `${Math.round(dayData.tempmax)}°F / ${Math.round(dayData.tempmin)}°F, ${dayData.label}`;
+          title.dataset.weatherSummary = `${formatTempPair(dayData.tempmax, dayData.tempmin)}, ${dayData.label}`;
           let badge = title.querySelector('.weather-badge');
           if (!badge) {
             badge = document.createElement('span');
             badge.className = 'weather-badge';
-            const firstButton = title.querySelector('.day-notes-btn, .btn-ai-suggest');
+            const firstButton = title.querySelector('.day-notes-btn, .btn-ai-suggest, .btn-copy-day');
             title.insertBefore(badge, firstButton || null);
           }
           const iconUrl = `https://raw.githubusercontent.com/visualcrossing/WeatherIcons/refs/heads/main/PNG/2nd%20Set%20-%20Color/${dayData.icon}.png`;
-          badge.innerHTML = `<img src="${iconUrl}" alt="${dayData.icon}" class="weather-icon" style="width: 1.4em; height: 1.4em; margin-right: 0.3em;"> ${Math.round(dayData.tempmax)}°F / ${Math.round(dayData.tempmin)}°F ${dayData.label}`;
+          badge.innerHTML = `<img src="${iconUrl}" alt="${dayData.icon}" class="weather-icon" style="width: 1.4em; height: 1.4em; margin-right: 0.3em;"> ${formatTempPair(dayData.tempmax, dayData.tempmin)} ${dayData.label}`;
         }
       });
 
@@ -1388,7 +1732,7 @@
               wDiv.title = dayData.label;
               wDiv.innerHTML = `
               <img src="${iconUrl}" class="weather-icon" style="width:1.2em; height:1.2em;">
-              <span>${Math.round(dayData.tempmax)}° / ${Math.round(dayData.tempmin)}°${histIcon}</span>
+              <span>${formatTempPair(dayData.tempmax, dayData.tempmin)}${histIcon}</span>
             `;
               if (dayData.isHistorical) wDiv.classList.add('historical');
             }
@@ -1417,6 +1761,7 @@
   // Update all clocks every minute
   setInterval(() => {
     document.querySelectorAll('.local-time-display').forEach(updateSingleClock);
+    updateSyncStatusLabel();
   }, 60000);
 
   async function fetchAllWeather() {
@@ -1431,6 +1776,14 @@
     }
   }
 
+  async function rerenderAllWeatherBadges() {
+    const cards = document.querySelectorAll('.location-card');
+    for (const card of cards) {
+      const data = await fetchCardWeatherData(card);
+      if (data) renderCardWeather(card, data);
+    }
+  }
+
   async function getAiSuggestions(location, date, dailyPlan, fullLocationPlan, hotelInfo, weather) {
     if (!geminiApiKey) {
       alert('Please set your Google AI API Key in the "AI Settings" tab first.');
@@ -1440,7 +1793,7 @@
     currentAiCacheKey = `${AI_CACHE_PREFIX}${encodeURIComponent(location)}_${date}`;
 
     try {
-      const cachedJson = localStorage.getItem(currentAiCacheKey);
+      const cachedJson = db.get(currentAiCacheKey);
       if (cachedJson) {
         const cached = JSON.parse(cachedJson);
         if (Date.now() - cached.timestamp < AI_CACHE_EXPIRY) {
@@ -1560,12 +1913,10 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
       aiConversationHistory.push({ role: 'model', parts: [{ text: responseText }] });
 
       if (currentAiCacheKey) {
-        try {
-          localStorage.setItem(currentAiCacheKey, JSON.stringify({
-            timestamp: Date.now(),
-            history: aiConversationHistory
-          }));
-        } catch (e) { }
+        db.set(currentAiCacheKey, JSON.stringify({
+          timestamp: Date.now(),
+          history: aiConversationHistory
+        }));
       }
 
       const messageDiv = document.createElement('div');
@@ -1591,7 +1942,9 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
   // Event delegation for checkbox state storage
   document.addEventListener('change', (e) => {
     if (e.target.matches('input[type="checkbox"][data-key]')) {
-      localStorage.setItem(e.target.dataset.key, e.target.checked);
+      db.set(e.target.dataset.key, e.target.checked);
+      const card = e.target.closest('.event-card');
+      if (card) card.classList.toggle('checked', e.target.checked);
     }
   });
 
@@ -1612,7 +1965,7 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
     // Use 1 for apps to normalize cache key, as app suggestions rarely depend on traveler count
     const count = currentChecklistType === 'packing' ? (packingCountInput.value || 1) : 1;
     if (currentChecklistType === 'packing') {
-      localStorage.setItem(PACKING_COUNT_STORAGE, count);
+      db.set(PACKING_COUNT_STORAGE, count);
     }
 
     packingContent.innerHTML = '<p>Generating checklist... <span class="ai-message loading">✨</span></p>';
@@ -1643,7 +1996,7 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
     // Check Cache
     if (!ignoreCache) {
       try {
-        const cachedJson = localStorage.getItem(currentAiCacheKey);
+        const cachedJson = db.get(currentAiCacheKey);
         if (cachedJson) {
           const cached = JSON.parse(cachedJson);
           if (Date.now() - cached.timestamp < AI_CACHE_EXPIRY) {
@@ -1683,7 +2036,7 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
       packingContent.innerHTML = renderMarkdown(text, currentAiCacheKey);
 
       // Cache result
-      localStorage.setItem(currentAiCacheKey, JSON.stringify({
+      db.set(currentAiCacheKey, JSON.stringify({
         timestamp: Date.now(),
         text: text,
         history: [] // Not using chat history for packing list
@@ -1713,7 +2066,7 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
         currentAiCacheKey = key;
         let loaded = false;
         try {
-          const cachedJson = localStorage.getItem(key);
+          const cachedJson = db.get(key);
           if (cachedJson) {
             const cached = JSON.parse(cachedJson);
             if (Date.now() - cached.timestamp < AI_CACHE_EXPIRY) {
@@ -1833,7 +2186,7 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
         });
 
         // Auto-select flash-lite if no user preference
-        if (!localStorage.getItem('gemini_model')) {
+        if (!db.get('gemini_model')) {
           const liteModel = contentModels.find(m => m.name.endsWith('flash-lite-preview'));
           if (liteModel) {
             geminiModelName = liteModel.name.replace(/^models\//, '');
@@ -1906,15 +2259,16 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
       scope: 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets.readonly',
       callback: (response) => {
         if (response.error) {
-          // If silent prompt fails at startup, we just revert to manual sign-in status
-          if (response.error === 'immediate_failed') {
+          if (response.error === 'immediate_failed' || response.error === 'interaction_required') {
+            db.remove('google_signed_in');
             updateGoogleStatus(false);
           } else {
-            showError('Google Auth Error: ' + response.error);
+            console.warn('Google Auth silent token warning:', response.error);
+            updateGoogleStatus(false);
           }
           return;
         }
-        localStorage.setItem('google_signed_in', 'true');
+        db.set('google_signed_in', 'true');
         accessToken = response.access_token;
         updateGoogleStatus(true);
         loadFromUrl(); // Re-check if we need to load a docId now that we're authed
@@ -1923,10 +2277,11 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
   }
 
   function trackRecentDoc(fileId, name, gid = '0') {
-    const metadata = JSON.parse(localStorage.getItem(DOC_METADATA_KEY) || '{}');
+    const key = `${fileId}_${gid}`;
+    const metadata = JSON.parse(db.get(DOC_METADATA_KEY, '{}'));
 
-    let startDate = metadata[fileId]?.startDate || null;
-    let endDate = metadata[fileId]?.endDate || null;
+    let startDate = metadata[key]?.startDate || null;
+    let endDate = metadata[key]?.endDate || null;
 
     if (parsed && parsed.dates && parsed.dates.length > 1) {
       const validDates = parsed.dates.slice(1).filter(d => d && d.trim());
@@ -1936,14 +2291,15 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
       }
     }
 
-    metadata[fileId] = {
-      name: name || metadata[fileId]?.name || 'Untitled Itinerary',
+    metadata[key] = {
+      fileId,
+      name: name || metadata[key]?.name || 'Untitled Itinerary',
       lastAccessed: Date.now(),
       startDate,
       endDate,
       gid
     };
-    localStorage.setItem(DOC_METADATA_KEY, JSON.stringify(metadata));
+    db.set(DOC_METADATA_KEY, JSON.stringify(metadata));
     renderRecentDocs();
   }
 
@@ -1953,9 +2309,9 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
     const sortBy = recentDocsSort?.value || 'recent';
     if (!container || !wrapper) return;
 
-    const metadata = JSON.parse(localStorage.getItem(DOC_METADATA_KEY) || '{}');
+    const metadata = JSON.parse(db.get(DOC_METADATA_KEY, '{}'));
     const entries = Object.entries(metadata)
-      .filter(([id, info]) => localStorage.getItem(DOC_CACHE_PREFIX + id + '_' + (info.gid || '0')))
+      .filter(([id, info]) => db.get(DOC_CACHE_PREFIX + id))
       .sort((a, b) => {
         if (sortBy === 'name') {
           return a[1].name.localeCompare(b[1].name);
@@ -2010,7 +2366,7 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
       `;
 
       item.querySelector('.recent-doc-info').onclick = () => {
-        updateUrlWithDocId(id, info.gid || '0');
+        updateUrlWithDocId(info.fileId || id.split('_')[0], info.gid || '0');
         loadFromUrl();
       };
 
@@ -2020,10 +2376,10 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
       delBtn.onclick = (e) => {
         e.stopPropagation();
         if (confirm(`Remove "${info.name}" from your recent list?`)) {
-          const metadata = JSON.parse(localStorage.getItem(DOC_METADATA_KEY) || '{}');
+          const metadata = JSON.parse(db.get(DOC_METADATA_KEY, '{}'));
           delete metadata[id];
-          localStorage.setItem(DOC_METADATA_KEY, JSON.stringify(metadata));
-          localStorage.removeItem(DOC_CACHE_PREFIX + id + '_' + (info.gid || '0'));
+          db.set(DOC_METADATA_KEY, JSON.stringify(metadata));
+          db.remove(DOC_CACHE_PREFIX + id);
           renderRecentDocs();
         }
       };
@@ -2035,7 +2391,7 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
   const handleGoogleSignIn = () => {
     if (accessToken) {
       google.accounts.oauth2.revoke(accessToken, () => {
-        localStorage.removeItem('google_signed_in');
+        db.remove('google_signed_in');
         updateGoogleStatus(false);
       });
     } else {
@@ -2092,8 +2448,8 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
     picker.setVisible(true);
   }
 
-  async function fetchSheetData(fileId, fileName, gid = '0', skipHistory = false) {
-    showError(`Fetching "${fileName}"...`);
+  async function fetchSheetData(fileId, fileName, gid = '0', skipHistory = false, silent = false) {
+    if (!silent) showError(`Fetching "${fileName}"...`);
     try {
       // Use Sheets API v4 to get formatted values and merge metadata from the first tab
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${fileId}?includeGridData=true&fields=properties.title,sheets(merges,data(rowData(values(formattedValue))))`;
@@ -2133,7 +2489,7 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
         // Determine column end based on the first row of the merge or total grid width
         const endC = m.endColumnIndex || (rows[startR] ? rows[startR].length : 0);
 
-        const val = rows[startR][startC];
+        const val = rows[startR] ? rows[startR][startC] : "";
         if (val) {
           for (let r = startR; r < endR; r++) {
             if (!rows[r]) rows[r] = [];
@@ -2144,7 +2500,7 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
         }
       });
 
-      localStorage.setItem(DOC_CACHE_PREFIX + fileId + '_' + gid, JSON.stringify(rows));
+      db.set(DOC_CACHE_PREFIX + fileId + '_' + gid, JSON.stringify(rows));
       h1.textContent = spreadsheetTitle;
       trackRecentDoc(fileId, spreadsheetTitle, gid);
       if (!skipHistory) {
@@ -2152,9 +2508,17 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
       }
       if (btnClearDoc) btnClearDoc.style.display = 'block';
       buildItineraryFromRows(rows, true);
+      enableSheetSync(fileId, gid);
+      if (silent) showError('');
     } catch (e) {
       console.error(e);
-      showError('Error loading from Sheets: ' + e.message);
+      const cached = db.get(DOC_CACHE_PREFIX + fileId + '_' + gid);
+      if (cached) {
+        if (!silent) showError('');
+        console.warn('Network fetch failed, but cached data is available:', e);
+      } else if (!silent) {
+        showError('Error loading from Sheets: ' + e.message);
+      }
     }
   }
 
@@ -2195,25 +2559,25 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
     const model = settingModel.value;
 
     if (key) {
-      localStorage.setItem(GEMINI_API_KEY_STORAGE, key);
+      db.set(GEMINI_API_KEY_STORAGE, key);
       geminiApiKey = key;
       document.body.classList.add('has-api-key');
     } else {
-      localStorage.removeItem(GEMINI_API_KEY_STORAGE);
+      db.remove(GEMINI_API_KEY_STORAGE);
       geminiApiKey = null;
       document.body.classList.remove('has-api-key');
     }
 
     if (vcKey) {
-      localStorage.setItem(VC_API_KEY_STORAGE, vcKey);
+      db.set(VC_API_KEY_STORAGE, vcKey);
       visualCrossingKey = vcKey;
     } else {
-      localStorage.removeItem(VC_API_KEY_STORAGE);
+      db.remove(VC_API_KEY_STORAGE);
       visualCrossingKey = null;
     }
 
     if (model) {
-      localStorage.setItem('gemini_model', model);
+      db.set('gemini_model', model);
       geminiModelName = model;
     }
 
@@ -2225,11 +2589,11 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
       const keysToRemove = [];
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key.startsWith(WEATHER_CACHE_PREFIX) || key.startsWith(AI_CACHE_PREFIX)) {
+        if (key && (key.startsWith(WEATHER_CACHE_PREFIX) || key.startsWith(AI_CACHE_PREFIX))) {
           keysToRemove.push(key);
         }
       }
-      keysToRemove.forEach(k => localStorage.removeItem(k));
+      keysToRemove.forEach(k => db.remove(k));
       alert('Cache cleared.');
     }
   });
@@ -2303,6 +2667,40 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
     }
     return Array.from(div.childNodes).map(walk).join('').trim();
   }
+
+  printBtn?.addEventListener('click', () => {
+    const collapsed = [];
+    document.querySelectorAll('.location-card.collapsed').forEach(card => {
+      collapsed.push(card);
+      card.classList.remove('collapsed');
+    });
+    const restore = () => {
+      collapsed.forEach(card => card.classList.add('collapsed'));
+      window.removeEventListener('afterprint', restore);
+    };
+    window.addEventListener('afterprint', restore);
+    window.print();
+  });
+
+  const handleSyncClick = async () => {
+    if (!lastSyncedDocId || !accessToken) return;
+    const btns = document.querySelectorAll('.sync-action-btn');
+    btns.forEach(btn => { btn.classList.add('syncing'); btn.disabled = true; });
+    try {
+      await fetchSheetData(lastSyncedDocId, h1.textContent, lastSyncedGid, true, true);
+    } finally {
+      btns.forEach(btn => { btn.classList.remove('syncing'); btn.disabled = false; });
+    }
+  };
+
+  document.querySelectorAll('.sync-action-btn').forEach(btn => {
+    btn.addEventListener('click', handleSyncClick);
+  });
+
+  mapRouteBtn?.addEventListener('click', () => {
+    const url = buildGoogleMapsRouteUrl();
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+  });
 
   shareBtn?.addEventListener('click', async () => {
     const longUrl = window.location.href;
@@ -2455,7 +2853,7 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
       } else if (view === 'packing') {
         document.getElementById('itinerary-packing').classList.add('visible');
         // Load persisted count
-        const savedCount = localStorage.getItem(PACKING_COUNT_STORAGE);
+        const savedCount = db.get(PACKING_COUNT_STORAGE);
         if (savedCount && packingCountInput) packingCountInput.value = savedCount;
 
         if (parsed) {
@@ -2470,7 +2868,7 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
 
           let contentFound = false;
           try {
-            const cachedJson = localStorage.getItem(key);
+            const cachedJson = db.get(key);
             if (cachedJson) {
               const cached = JSON.parse(cachedJson);
               if (Date.now() - cached.timestamp < AI_CACHE_EXPIRY) {
@@ -2519,14 +2917,16 @@ Use Markdown. For each suggestion, use an H3 (###) for the name, followed by a b
         clearInterval(waitGsi);
         initTokenClient();
 
-        // Use One Tap with a notification listener to debug failures
-        google.accounts.id.prompt((notification) => {
-          if (notification.isSkippedMoment() || notification.isDismissedMoment()) {
-            // If the automatic prompt is skipped (due to the 10-minute cooldown 
-            // or blocked cookies) or dismissed, revert to the manual sign-in button.
-            if (!accessToken) updateGoogleStatus(false);
-          }
-        });
+        if (db.get('google_signed_in') === 'true' && tokenClient) {
+          // Silent token refresh on page reload
+          tokenClient.requestAccessToken({ prompt: '' });
+        } else {
+          google.accounts.id.prompt((notification) => {
+            if (notification.isSkippedMoment() || notification.isDismissedMoment()) {
+              if (!accessToken) updateGoogleStatus(false);
+            }
+          });
+        }
       }
     }, 500);
 

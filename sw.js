@@ -1,9 +1,10 @@
-const CACHE_NAME = 'travel-planner-v4';
+const CACHE_NAME = 'travel-planner-v6';
 const STATIC_ASSETS = [
     './',
     'index.html',
     'styles.css',
     'app.js',
+    'favicon.png',
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
     'https://cdn.jsdelivr.net/npm/marked/marked.min.js',
