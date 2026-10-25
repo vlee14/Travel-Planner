@@ -1,4 +1,4 @@
-const CACHE_NAME = 'travel-planner-v6';
+const CACHE_NAME = 'travel-planner-v8';
 const STATIC_ASSETS = [
     './',
     'index.html',
@@ -7,8 +7,7 @@ const STATIC_ASSETS = [
     'favicon.png',
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
-    'https://cdn.jsdelivr.net/npm/marked/marked.min.js',
-    'https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap'
+    'https://cdn.jsdelivr.net/npm/marked/marked.min.js'
 ];
 
 self.addEventListener('install', (event) => {

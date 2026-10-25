@@ -9,7 +9,6 @@
   const tabs = document.querySelectorAll('.tab');
   const panels = document.querySelectorAll('.input-panel');
   const viewBtns = document.querySelectorAll('.view-btn[data-view]');
-  const themeToggle = document.getElementById('theme-toggle');
   const homeBtn = document.getElementById('home-btn');
   const h1 = document.querySelector('.header-row h1');
   const shareBtn = document.getElementById('share-btn');
@@ -157,9 +156,14 @@
     settingModel.value = geminiModelName;
   }
 
-  // Theme Logic
-  let currentTheme = db.get('theme', 'light');
+  // Theme Logic. Stored value is light, dark, or system.
+  let themePreference = db.get('theme', 'light');
+  if (themePreference !== 'light' && themePreference !== 'dark' && themePreference !== 'system') {
+    themePreference = 'light';
+  }
+  let currentTheme = 'light';
   const htmlEl = document.documentElement;
+  const systemThemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
 
   function renderMarkdown(text, keyOverride) {
     const keyToUse = keyOverride || currentAiCacheKey;
@@ -199,33 +203,33 @@
     return div.innerHTML;
   }
 
-  function updateTheme(theme) {
-    currentTheme = theme;
-    htmlEl.setAttribute('data-theme', theme);
-    db.set('theme', theme);
-    if (mapTileLayer) {
-      const isLight = theme === 'light';
-      const url = isLight
-        ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
-        : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-      mapTileLayer.setUrl(url);
-    }
+  function routeColor() {
+    return currentTheme === 'dark' ? '#0A84FF' : '#007AFF';
   }
 
-  function updateTheme(theme) {
-    currentTheme = theme;
-    htmlEl.setAttribute('data-theme', theme);
-    db.set('theme', theme);
-    document.querySelectorAll('.theme-toggle-label').forEach(el => {
-      el.textContent = theme === 'dark' ? 'Dark Mode' : 'Light Mode';
+  function resolvedTheme(preference) {
+    if (preference === 'system') return systemThemeQuery.matches ? 'dark' : 'light';
+    return preference === 'dark' ? 'dark' : 'light';
+  }
+
+  function updateTheme(preference) {
+    themePreference = preference;
+    currentTheme = resolvedTheme(preference);
+    htmlEl.setAttribute('data-theme', currentTheme);
+    db.set('theme', preference);
+    document.querySelectorAll('.theme-choice').forEach(btn => {
+      const selected = btn.dataset.themeChoice === preference;
+      btn.classList.toggle('active', selected);
+      btn.setAttribute('aria-checked', selected ? 'true' : 'false');
     });
     if (mapTileLayer) {
-      const isLight = theme === 'light';
+      const isLight = currentTheme === 'light';
       const url = isLight
         ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
         : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
       mapTileLayer.setUrl(url);
     }
+    if (polyline) polyline.setStyle({ color: routeColor() });
   }
 
   function updateTempUnitUI() {
@@ -235,17 +239,18 @@
   }
 
   // Initialize theme and temp unit UI
-  if (currentTheme) updateTheme(currentTheme);
+  updateTheme(themePreference);
   updateTempUnitUI();
 
   // Prevent layout shift when switching between short and long pages (scrollbar jump)
   document.documentElement.style.overflowY = 'scroll';
 
-  document.querySelectorAll('.theme-toggle-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-      updateTheme(newTheme);
-    });
+  document.querySelectorAll('.theme-choice').forEach(btn => {
+    btn.addEventListener('click', () => updateTheme(btn.dataset.themeChoice));
+  });
+
+  systemThemeQuery.addEventListener('change', () => {
+    if (themePreference === 'system') updateTheme('system');
   });
 
   document.querySelectorAll('.temp-unit-btn').forEach(btn => {
@@ -965,8 +970,7 @@
           // Show Month Name if 1st of month OR first visible day
           if (d.dayNum === 1 || isFirstVisibleDay) {
             num.textContent = d.date.toLocaleDateString('default', { month: 'short', day: 'numeric' });
-            num.style.fontWeight = '700';
-            num.style.color = 'var(--accent)';
+            num.classList.add('month-start');
             isFirstVisibleDay = false;
           } else {
             num.textContent = d.dayNum;
@@ -1045,7 +1049,7 @@
     mapLayerGroup.clearLayers();
     mapPoints.length = 0;
     for (const key in mapMarkers) delete mapMarkers[key];
-    polyline = L.polyline([], { color: 'var(--accent)', weight: 3 }).addTo(mapLayerGroup);
+    polyline = L.polyline([], { color: routeColor(), weight: 4, opacity: 0.9 }).addTo(mapLayerGroup);
     if (mapRouteBtn) mapRouteBtn.style.display = 'none';
   }
 
@@ -1233,7 +1237,6 @@
     const am = (m[3] || '').toLowerCase() === 'am';
     if (pm && h < 12) h += 12;
     if (am && h === 12) h = 0;
-    if (!pm && !am && h <= 12) h = h % 12;
     return h * 60 + min;
   }
 
@@ -1645,7 +1648,7 @@
             dateRangeEl.parentNode.insertBefore(sumEl, dateRangeEl.nextSibling);
           }
           const tempStr = minHigh === maxHigh ? formatTemp(maxHigh) : `${formatTemp(minHigh)}–${formatTemp(maxHigh)}`;
-          sumEl.innerHTML = `${iconsHtml} <b>${tempStr}</b>`;
+          sumEl.innerHTML = `${iconsHtml} <span class="weather-temp">${tempStr}</span>`;
 
           if (days.some(d => d.isHistorical)) {
             const meta = card.querySelector('.location-card-meta');
