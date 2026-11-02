@@ -1,0 +1,28 @@
+import { installHtml } from './html.js';
+import { installDates } from './dates.js';
+import { installSheet } from './sheet.js';
+import { installTheme } from './theme.js';
+import { installWeather } from './weather.js';
+import { installMap } from './map.js';
+import { installItinerary } from './itinerary.js';
+import { installSync } from './sync.js';
+import { installBuilder } from './builder.js';
+import { installAi } from './ai.js';
+import { installDrive } from './drive.js';
+import { installBoot } from './boot.js';
+import { installWire } from './wire.js';
+
+const app = {};
+installHtml(app);
+installDates(app);
+installSheet(app);
+installTheme(app);
+installWeather(app);
+installMap(app);
+installItinerary(app);
+installSync(app);
+installBuilder(app);
+installAi(app);
+installDrive(app);
+installBoot(app);
+installWire(app);

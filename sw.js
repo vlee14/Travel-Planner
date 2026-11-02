@@ -1,9 +1,26 @@
-const CACHE_NAME = 'travel-planner-v8';
+---
+layout: null
+permalink: /sw.js
+---
+const CACHE_NAME = 'travel-planner-{{ site.github.build_revision | slice: 0, 12 | default: "dev" }}';
 const STATIC_ASSETS = [
     './',
     'index.html',
     'styles.css',
-    'app.js',
+    'js/app.js',
+    'js/ai.js',
+    'js/boot.js',
+    'js/builder.js',
+    'js/dates.js',
+    'js/drive.js',
+    'js/html.js',
+    'js/itinerary.js',
+    'js/map.js',
+    'js/sheet.js',
+    'js/sync.js',
+    'js/theme.js',
+    'js/weather.js',
+    'js/wire.js',
     'favicon.png',
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
