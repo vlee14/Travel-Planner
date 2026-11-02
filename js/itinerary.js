@@ -837,9 +837,9 @@ export function installItinerary(app) {
         return;
       }
 
-      // If we don't have an access token yet, we stop here. 
-      // The auth callbacks will trigger loadFromUrl() again once a token is acquired.
-      if (!app.accessToken) return;
+      // A sheet fetch waits until a live token is restored or silently refreshed.
+      const tokenReady = typeof app.googleTokenFresh === 'function' ? app.googleTokenFresh() : !!app.accessToken;
+      if (!tokenReady) return;
 
       app.fetchSheetData(docId, existingName || 'Linked Spreadsheet', gid, true);
     } else {

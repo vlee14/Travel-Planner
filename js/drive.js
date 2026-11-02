@@ -1,83 +1,323 @@
 // Google Drive import.
 export function installDrive(app) {
-  app.updateGoogleStatus = function updateGoogleStatus(signedIn, loading = false) {
-    if (loading) {
-      app.googleStatus.textContent = 'Connecting to Google...';
-      app.googleStatus.style.color = 'var(--text-muted)';
-      app.btnGoogleSignIn.disabled = true;
+  const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets';
+  const TOKEN_SKEW_MS = 60 * 1000;
+  const SILENT_TIMEOUT_MS = 15 * 1000;
+
+  app.GOOGLE_TOKEN_KEY = 'google_access_v1';
+  app.GOOGLE_SIGNED_IN_KEY = 'google_signed_in';
+  app.accessToken = null;
+  app.accessTokenExpiresAt = 0;
+  app.tokenClient = null;
+  app.googleAuthFlight = null;
+  app.googleAuthGeneration = 0;
+  app.tokenRefreshTimer = null;
+
+  app.googleAuthError = function googleAuthError(code, message) {
+    const silent = code === 'immediate_failed' || code === 'interaction_required' || code === 'timeout';
+    const cancelled = code === 'access_denied' || code === 'popup_closed' || code === 'popup_closed_by_user';
+    const blocked = code === 'popup_failed_to_open';
+    let text = message || 'Google sign-in failed. Try again.';
+    if (cancelled) text = 'Google sign-in was cancelled.';
+    else if (blocked) text = 'Pop-up blocked. Allow pop-ups, then try again.';
+    else if (silent) text = 'Google needs you to sign in again.';
+    return Object.assign(new Error(text), { code, silent, cancelled, blocked });
+  };
+
+  app.googleTokenFresh = function googleTokenFresh() {
+    return !!(app.accessToken && app.accessTokenExpiresAt && app.accessTokenExpiresAt - TOKEN_SKEW_MS > Date.now());
+  };
+
+  app.rememberGoogleToken = function rememberGoogleToken(accessToken, expiresIn) {
+    const seconds = Number(expiresIn);
+    const lifetime = (Number.isFinite(seconds) && seconds > 0 ? seconds : 3600) * 1000;
+    app.accessToken = accessToken;
+    app.accessTokenExpiresAt = Date.now() + lifetime;
+    app.db.set(app.GOOGLE_TOKEN_KEY, JSON.stringify({
+      access_token: accessToken,
+      expires_at: app.accessTokenExpiresAt
+    }));
+    app.db.set(app.GOOGLE_SIGNED_IN_KEY, 'true');
+    app.scheduleGoogleRefresh();
+  };
+
+  app.restoreGoogleSession = function restoreGoogleSession() {
+    app.accessToken = null;
+    app.accessTokenExpiresAt = 0;
+    const raw = app.db.get(app.GOOGLE_TOKEN_KEY);
+    if (!raw) return false;
+    try {
+      const data = JSON.parse(raw);
+      if (!data || !data.access_token || !data.expires_at) {
+        app.db.remove(app.GOOGLE_TOKEN_KEY);
+        return false;
+      }
+      app.accessToken = data.access_token;
+      app.accessTokenExpiresAt = data.expires_at;
+      if (!app.googleTokenFresh()) {
+        app.accessToken = null;
+        app.accessTokenExpiresAt = 0;
+        app.db.remove(app.GOOGLE_TOKEN_KEY);
+        return false;
+      }
+      app.db.set(app.GOOGLE_SIGNED_IN_KEY, 'true');
+      app.scheduleGoogleRefresh();
+      return true;
+    } catch (e) {
+      app.db.remove(app.GOOGLE_TOKEN_KEY);
+      return false;
+    }
+  };
+
+  app.clearGoogleSession = function clearGoogleSession(options = {}) {
+    app.accessToken = null;
+    app.accessTokenExpiresAt = 0;
+    if (app.db) app.db.remove(app.GOOGLE_TOKEN_KEY);
+    if (!options.keepPreference && app.db) app.db.remove(app.GOOGLE_SIGNED_IN_KEY);
+    if (app.tokenRefreshTimer) {
+      clearTimeout(app.tokenRefreshTimer);
+      app.tokenRefreshTimer = null;
+    }
+  };
+
+  app.armGoogleExpiry = function armGoogleExpiry(expiresAt) {
+    if (app.tokenRefreshTimer) clearTimeout(app.tokenRefreshTimer);
+    const wait = Math.max(1000, expiresAt - Date.now() + 500);
+    app.tokenRefreshTimer = setTimeout(() => {
+      app.tokenRefreshTimer = null;
+      if (app.accessTokenExpiresAt !== expiresAt) return;
+      app.clearGoogleSession({ keepPreference: true });
+      app.updateGoogleStatus(false);
+    }, wait);
+    if (app.tokenRefreshTimer.unref) app.tokenRefreshTimer.unref();
+  };
+
+  app.scheduleGoogleRefresh = function scheduleGoogleRefresh() {
+    if (app.tokenRefreshTimer) clearTimeout(app.tokenRefreshTimer);
+    app.tokenRefreshTimer = null;
+    if (!app.accessToken || !(app.accessTokenExpiresAt > Date.now())) return;
+    const expiresAt = app.accessTokenExpiresAt;
+    const lead = expiresAt - Date.now() - TOKEN_SKEW_MS;
+    const delay = lead > 0 ? lead : Math.max(1000, expiresAt - Date.now() + 500);
+    const refresh = lead > 0;
+    app.tokenRefreshTimer = setTimeout(() => {
+      app.tokenRefreshTimer = null;
+      if (app.accessTokenExpiresAt !== expiresAt) return;
+      if (!refresh || app.db.get(app.GOOGLE_SIGNED_IN_KEY) !== 'true') {
+        app.clearGoogleSession({ keepPreference: true });
+        app.updateGoogleStatus(false);
+        return;
+      }
+      const run = () => {
+        app.ensureSheetsAccess({ interactive: false, force: true }).then(() => {
+          if (app.accessTokenExpiresAt === expiresAt) app.armGoogleExpiry(expiresAt);
+        }).catch(() => {
+          if (app.accessTokenExpiresAt === expiresAt) app.armGoogleExpiry(expiresAt);
+        });
+      };
+      if (typeof document !== 'undefined' && document.hidden && document.addEventListener) {
+        const onVisible = () => {
+          if (document.hidden) return;
+          document.removeEventListener('visibilitychange', onVisible);
+          if (app.accessTokenExpiresAt !== expiresAt) return;
+          run();
+        };
+        document.addEventListener('visibilitychange', onVisible);
+        return;
+      }
+      run();
+    }, delay);
+    if (app.tokenRefreshTimer.unref) app.tokenRefreshTimer.unref();
+  };
+
+  // A 401 means Google rejected the bearer token. Ask for a new one without a
+  // popup when we can, and only show the consent screen if Google hands back
+  // the same rejected token.
+  app.recoverGoogleAccess = async function recoverGoogleAccess(interactive) {
+    const previous = app.accessToken;
+    app.clearGoogleSession({ keepPreference: true });
+    await app.ensureSheetsAccess({
+      interactive: !!interactive,
+      force: true,
+      prompt: interactive ? '' : 'none'
+    });
+    if (!previous || app.accessToken !== previous) return app.accessToken;
+    app.clearGoogleSession({ keepPreference: true });
+    if (!interactive) {
+      app.updateGoogleStatus(false);
+      throw app.googleAuthError('interaction_required');
+    }
+    return app.ensureSheetsAccess({ interactive: true, force: true, prompt: 'consent' });
+  };
+
+  app.onGoogleAuthStorage = function onGoogleAuthStorage(event) {
+    if (!event || (event.key !== app.GOOGLE_TOKEN_KEY && event.key !== app.GOOGLE_SIGNED_IN_KEY)) return;
+    app.updateGoogleStatus(app.restoreGoogleSession());
+  };
+
+  app.signOutGoogle = function signOutGoogle() {
+    const token = app.accessToken;
+    app.googleAuthGeneration += 1;
+    const flight = app.googleAuthFlight;
+    if (flight && !flight.settled) {
+      flight.settled = true;
+      if (flight.timer) clearTimeout(flight.timer);
+      flight.reject(app.googleAuthError('popup_closed'));
+    }
+    app.clearGoogleSession();
+    app.updateGoogleStatus(false);
+    if (token && typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
+      google.accounts.oauth2.revoke(token, () => {});
+    }
+  };
+
+  app.finishGoogleAuth = function finishGoogleAuth(response) {
+    const flight = app.googleAuthFlight;
+    if (!flight || flight.settled) return;
+    if (flight.generation !== app.googleAuthGeneration) {
+      flight.settled = true;
+      if (flight.timer) clearTimeout(flight.timer);
+      flight.reject(app.googleAuthError('popup_closed'));
       return;
     }
-    app.btnGoogleSignIn.disabled = false;
+    flight.settled = true;
+    if (flight.timer) clearTimeout(flight.timer);
+    if (!response || response.error) {
+      const code = response && response.error ? response.error : 'unknown';
+      const authError = app.googleAuthError(code, response && response.error_description);
+      if (!authError.silent && !authError.cancelled) console.warn('Google sign-in warning:', code);
+      flight.reject(authError);
+      return;
+    }
+    app.rememberGoogleToken(response.access_token, response.expires_in);
+    app.updateGoogleStatus(true);
+    flight.resolve(app.accessToken);
+  };
+
+  app.updateGoogleStatus = function updateGoogleStatus(signedIn, loading = false) {
+    const signInBtn = app.btnGoogleSignIn;
+    const driveBtn = app.btnDriveAuth;
+    if (loading) {
+      if (app.googleStatus) {
+        app.googleStatus.textContent = 'Connecting to Google...';
+        app.googleStatus.style.color = 'var(--text-muted)';
+      }
+      if (signInBtn) {
+        signInBtn.disabled = true;
+        signInBtn.setAttribute('aria-busy', 'true');
+      }
+      if (driveBtn) {
+        driveBtn.disabled = true;
+        driveBtn.setAttribute('aria-busy', 'true');
+      }
+      return;
+    }
+    if (signInBtn) {
+      signInBtn.disabled = false;
+      signInBtn.removeAttribute('aria-busy');
+    }
+    if (driveBtn) {
+      driveBtn.disabled = false;
+      driveBtn.removeAttribute('aria-busy');
+    }
     if (signedIn) {
-      app.googleStatus.textContent = 'Signed in';
-      app.googleStatus.style.color = 'var(--success)';
-      app.btnGoogleSignIn.innerHTML = `<img src="https://fonts.gstatic.com/s/i/productlogos/googleg/v6/24px.svg" alt="" width="18"> Sign out of Google`;
+      if (app.googleStatus) {
+        app.googleStatus.textContent = 'Signed in';
+        app.googleStatus.style.color = 'var(--success)';
+      }
+      if (signInBtn) {
+        signInBtn.innerHTML = `<img src="https://fonts.gstatic.com/s/i/productlogos/googleg/v6/24px.svg" alt="" width="18"> Sign out of Google`;
+      }
       if (app.driveManualInput) app.driveManualInput.style.display = 'flex';
       if (app.btnDrivePicker) app.btnDrivePicker.style.display = 'flex';
-      const warning = document.getElementById('drive-auth-warning');
+      const warning = typeof document !== 'undefined' && document.getElementById && document.getElementById('drive-auth-warning');
       if (warning) warning.style.display = 'none';
     } else {
-      app.googleStatus.textContent = 'Not signed in';
-      app.googleStatus.style.color = 'var(--text-muted)';
-      app.btnGoogleSignIn.innerHTML = `<img src="https://fonts.gstatic.com/s/i/productlogos/googleg/v6/24px.svg" alt="" width="18"> Sign in with Google`;
+      if (app.googleStatus) {
+        app.googleStatus.textContent = 'Not signed in';
+        app.googleStatus.style.color = 'var(--text-muted)';
+      }
+      if (signInBtn) {
+        signInBtn.innerHTML = `<img src="https://fonts.gstatic.com/s/i/productlogos/googleg/v6/24px.svg" alt="" width="18"> Sign in with Google`;
+      }
       if (app.driveManualInput) app.driveManualInput.style.display = 'none';
       if (app.btnDrivePicker) app.btnDrivePicker.style.display = 'none';
-      const warning = document.getElementById('drive-auth-warning');
+      const warning = typeof document !== 'undefined' && document.getElementById && document.getElementById('drive-auth-warning');
       if (warning) warning.style.display = 'block';
-      app.accessToken = null;
     }
   };
 
   app.initTokenClient = function initTokenClient() {
     if (!app.googleClientId || app.tokenClient) return;
+    if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) return;
 
-    // Check if the Google Identity Services script has finished loading
-    if (typeof google === 'undefined' || !google.accounts) {
-      return;
-    }
-
-    // 1. Initialize Identity (Sign In With Google / One Tap)
-    // This handles the "Automatic Login" feature
-    google.accounts.id.initialize({
-      client_id: app.googleClientId,
-      auto_select: true,
-      context: 'signin',
-      callback: (response) => {
-        // Successful automatic or manual identity verification
-        if (app.tokenClient && !app.accessToken) {
-          app.tokenClient.requestAccessToken({ prompt: '' });
-        }
-      }
-    });
-
-    // 2. Initialize Authorization (Google Drive access)
+    // One token client for Drive and Sheets. Identity One Tap is a second prompt
+    // and does not grant those scopes, so it is not initialized here.
     app.tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: app.googleClientId,
-      scope: 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets',
-      callback: (response) => {
-        const pending = app.pendingAuth;
-        app.pendingAuth = null;
-        if (response.error) {
-          if (response.error === 'immediate_failed' || response.error === 'interaction_required') {
-            app.db.remove('google_signed_in');
-            app.updateGoogleStatus(false);
-          } else {
-            console.warn('Google Auth silent token warning:', response.error);
-            app.updateGoogleStatus(false);
-          }
-          if (pending) {
-            const cancelled = response.error === 'access_denied' || response.error === 'popup_closed';
-            pending.reject(new Error(cancelled ? 'Google sign-in was cancelled.' : 'Google sign-in failed. Try again.'));
-          }
-          return;
-        }
-        app.db.set('google_signed_in', 'true');
-        app.accessToken = response.access_token;
-        app.updateGoogleStatus(true);
-        if (pending) pending.resolve(app.accessToken);
-        else app.loadFromUrl();
-      },
+      scope: GOOGLE_SCOPES,
+      include_granted_scopes: true,
+      callback: (response) => app.finishGoogleAuth(response),
+      error_callback: (error) => app.finishGoogleAuth({
+        error: error && error.type ? error.type : 'unknown',
+        error_description: error && error.message
+      })
     });
+  };
+
+  app.ensureSheetsAccess = function ensureSheetsAccess(options = {}) {
+    const interactive = !!options.interactive;
+    const force = !!options.force;
+    if (!force && app.googleTokenFresh()) return Promise.resolve(app.accessToken);
+    if (!interactive && app.db.get(app.GOOGLE_SIGNED_IN_KEY) !== 'true') {
+      return Promise.reject(app.googleAuthError('interaction_required'));
+    }
+
+    app.initTokenClient();
+    if (!app.tokenClient) {
+      return Promise.reject(new Error('Google sign-in is still loading. Wait a moment and try again.'));
+    }
+
+    if (app.googleAuthFlight && !app.googleAuthFlight.settled) {
+      if (!interactive || app.googleAuthFlight.interactive) return app.googleAuthFlight.promise;
+      return app.googleAuthFlight.promise.then(
+        (token) => token,
+        () => app.ensureSheetsAccess(options)
+      );
+    }
+
+    const flight = {
+      interactive,
+      generation: app.googleAuthGeneration,
+      settled: false,
+      timer: null,
+      promise: null,
+      resolve: null,
+      reject: null
+    };
+    flight.promise = new Promise((resolve, reject) => {
+      flight.resolve = resolve;
+      flight.reject = reject;
+    });
+    const prompt = interactive ? (options.prompt || '') : 'none';
+    app.googleAuthFlight = flight;
+    if (!interactive) {
+      flight.timer = setTimeout(() => {
+        if (flight.settled || app.googleAuthFlight !== flight) return;
+        app.finishGoogleAuth({ error: 'timeout' });
+      }, SILENT_TIMEOUT_MS);
+    }
+    flight.promise.finally(() => {
+      if (app.googleAuthFlight === flight) app.googleAuthFlight = null;
+    }).catch(() => {});
+    try {
+      app.tokenClient.requestAccessToken({ prompt });
+    } catch (error) {
+      flight.settled = true;
+      if (flight.timer) clearTimeout(flight.timer);
+      flight.reject(error);
+    }
+    return flight.promise;
   };
 
   app.trackRecentDoc = function trackRecentDoc(fileId, name, gid = '0') {
@@ -200,13 +440,27 @@ export function installDrive(app) {
   };
 
   app.fetchSheetData = async function fetchSheetData(fileId, fileName, gid = '0', skipHistory = false, silent = false) {
+    try {
+      await app.ensureSheetsAccess({ interactive: !silent });
+    } catch (error) {
+      const stillValid = app.accessToken && app.accessTokenExpiresAt > Date.now();
+      if (!stillValid) {
+        if (!silent) app.showError(error.message || 'Google sign-in failed. Try again.');
+        return;
+      }
+    }
     if (!silent) app.showError(`Fetching "${fileName}"...`);
     try {
       // Use Sheets API v4 to get formatted values and merge metadata
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${fileId}?includeGridData=true&fields=properties.title,sheets(properties(sheetId,title),merges,data(rowData(values(formattedValue))))`;
-      const response = await fetch(url, {
-        headers: { 'Authorization': `Bearer ${app.accessToken}` }
-      });
+      let response;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        response = await fetch(url, {
+          headers: { 'Authorization': `Bearer ${app.accessToken}` }
+        });
+        if (response.status !== 401 || attempt === 1) break;
+        await app.recoverGoogleAccess(!silent);
+      }
 
       if (!response.ok) {
         const errorBody = await response.json().catch(() => ({}));
@@ -273,6 +527,7 @@ export function installDrive(app) {
       if (silent) app.showError('');
     } catch (e) {
       console.error(e);
+      if (!app.accessToken) app.updateGoogleStatus(false);
       const cached = app.db.get(app.DOC_CACHE_PREFIX + fileId + '_' + gid);
       if (cached) {
         if (!silent) app.showError('');
@@ -324,6 +579,12 @@ export function installDrive(app) {
   };
 
   app.sheetsRequest = async function sheetsRequest(path, options = {}) {
+    const interactive = options.interactive !== false;
+    await app.ensureSheetsAccess({
+      interactive,
+      force: !!options.forceAuth,
+      prompt: options.authPrompt
+    });
     const response = await fetch(`https://sheets.googleapis.com/v4/${path}`, {
       method: options.method || 'GET',
       headers: {
@@ -333,6 +594,15 @@ export function installDrive(app) {
       body: options.body ? JSON.stringify(options.body) : undefined
     });
     const data = await response.json().catch(() => ({}));
+    if (response.status === 401 && !options.retried) {
+      try {
+        await app.recoverGoogleAccess(interactive);
+      } catch (error) {
+        if (!app.accessToken) app.updateGoogleStatus(false);
+        throw error;
+      }
+      return app.sheetsRequest(path, { ...options, retried: true, forceAuth: false });
+    }
     if (!response.ok) {
       const details = data.error?.details || [];
       const error = new Error(data.error?.message || `Sheets request failed (${response.status})`);
@@ -352,19 +622,6 @@ export function installDrive(app) {
       return 'Google did not allow editing this spreadsheet. Fork a copy instead, or ask the owner for edit access.';
     }
     return error.message || 'Could not save to Google Sheets.';
-  };
-
-  app.ensureSheetsAccess = function ensureSheetsAccess(options = {}) {
-    if (app.accessToken && !options.force) return Promise.resolve(app.accessToken);
-    return new Promise((resolve, reject) => {
-      app.initTokenClient();
-      if (!app.tokenClient) {
-        reject(new Error('Google sign-in is still loading. Wait a moment and try again.'));
-        return;
-      }
-      app.pendingAuth = { resolve, reject };
-      app.tokenClient.requestAccessToken({ prompt: options.prompt || (options.force ? 'consent' : 'select_account') });
-    });
   };
 
   app.refreshLinkedSheetMeta = async function refreshLinkedSheetMeta() {
@@ -394,13 +651,12 @@ export function installDrive(app) {
 
   app.writeLinkedSheet = async function writeLinkedSheet(days, title) {
     if (!app.linkedSheet?.fileId) throw new Error('This trip is not linked to a Google Sheet.');
-    if (!app.accessToken) await app.ensureSheetsAccess();
     let link;
     try {
       link = await app.refreshLinkedSheetMeta();
     } catch (error) {
-      if (app.isSheetsScopeError(error) || error.status === 401) {
-        await app.ensureSheetsAccess({ force: true, prompt: 'consent' });
+      if (app.isSheetsScopeError(error)) {
+        await app.ensureSheetsAccess({ force: true, prompt: 'consent', interactive: true });
         link = await app.refreshLinkedSheetMeta();
       } else {
         throw new Error(app.sheetsPermissionMessage(error));
@@ -438,8 +694,8 @@ export function installDrive(app) {
           body: { requests }
         });
       } catch (error) {
-        if (app.isSheetsScopeError(error) || error.status === 401) {
-          await app.ensureSheetsAccess({ force: true, prompt: 'consent' });
+        if (app.isSheetsScopeError(error)) {
+          await app.ensureSheetsAccess({ force: true, prompt: 'consent', interactive: true });
           await app.sheetsRequest(`spreadsheets/${encodeURIComponent(link.fileId)}:batchUpdate`, {
             method: 'POST',
             body: { requests }

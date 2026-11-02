@@ -332,39 +332,46 @@ app.aiFollowUpInput?.addEventListener('keydown', (e) => {
 });
 
 app.handleGoogleSignIn = () => {
-  if (app.accessToken) {
-    google.accounts.oauth2.revoke(app.accessToken, () => {
-      app.db.remove('google_signed_in');
-      app.updateGoogleStatus(false);
-    });
-  } else {
-    if (!app.googleClientId) {
-      alert('Google Client ID is not configured.');
-      return;
-    }
-
-    app.initTokenClient();
-
-    if (!app.tokenClient) {
-      alert('Google Auth library is still loading. Please wait a few seconds and try again.');
-      return;
-    }
-    app.tokenClient.requestAccessToken({ prompt: 'select_account' });
+  if (app.accessToken && app.accessTokenExpiresAt > Date.now()) {
+    app.signOutGoogle();
+    return;
   }
+  if (!app.googleClientId) {
+    alert('Google Client ID is not configured.');
+    return;
+  }
+
+  app.initTokenClient();
+  if (!app.tokenClient) {
+    alert('Google Auth library is still loading. Please wait a few seconds and try again.');
+    return;
+  }
+  app.updateGoogleStatus(false, true);
+  app.ensureSheetsAccess({ interactive: true }).then(() => {
+    if (new URLSearchParams(window.location.search).get('docId')) app.loadFromUrl();
+  }).catch((error) => {
+    app.updateGoogleStatus(!!app.googleTokenFresh());
+    if (error && error.blocked && app.googleStatus) {
+      app.googleStatus.textContent = error.message;
+      app.googleStatus.style.color = 'var(--danger)';
+    }
+  });
 };
 
 app.btnGoogleSignIn?.addEventListener('click', app.handleGoogleSignIn);
 app.btnDriveAuth?.addEventListener('click', app.handleGoogleSignIn);
 
-app.btnDrivePicker?.addEventListener('click', () => {
-  if (!app.accessToken) {
-    app.tokenClient.requestAccessToken({ prompt: '' });
+app.btnDrivePicker?.addEventListener('click', async () => {
+  try {
+    await app.ensureSheetsAccess({ interactive: true });
+  } catch (error) {
     return;
   }
-  gapi.load('picker', { 'callback': app.createPicker });
+  if (typeof gapi === 'undefined') return;
+  gapi.load('picker', { callback: app.createPicker });
 });
 
-app.btnDriveUrlFetch?.addEventListener('click', () => {
+app.btnDriveUrlFetch?.addEventListener('click', async () => {
   const input = app.driveUrlInput.value.trim();
   if (!input) return;
 
@@ -378,6 +385,12 @@ app.btnDriveUrlFetch?.addEventListener('click', () => {
   // Normalize UI to show the document URL instead of internal export links or just the ID
   app.driveUrlInput.value = `https://docs.google.com/spreadsheets/d/${fileId}/edit${gid !== '0' ? '#gid=' + gid : ''}`;
 
+  try {
+    await app.ensureSheetsAccess({ interactive: true });
+  } catch (error) {
+    app.showError(error.message || 'Google sign-in failed. Try again.');
+    return;
+  }
   app.fetchSheetData(fileId, 'Manual Entry', gid);
 });
 
@@ -601,11 +614,14 @@ app.printBtn?.addEventListener('click', () => {
 });
 
 app.handleSyncClick = async () => {
-  if (!app.lastSyncedDocId || !app.accessToken) return;
+  if (!app.lastSyncedDocId) return;
   const btns = document.querySelectorAll('.sync-action-btn');
   btns.forEach(btn => { btn.classList.add('syncing'); btn.disabled = true; });
   try {
+    await app.ensureSheetsAccess({ interactive: true });
     await app.fetchSheetData(app.lastSyncedDocId, app.h1.textContent, app.lastSyncedGid, true, true);
+  } catch (error) {
+    if (error && !error.cancelled && !error.silent) app.showError(error.message || 'Google sign-in failed. Try again.');
   } finally {
     btns.forEach(btn => { btn.classList.remove('syncing'); btn.disabled = false; });
   }
@@ -1042,28 +1058,31 @@ app.h1?.addEventListener('click', app.resetApp);
   app.syncAiAvailability();
   if (app.currentAiKey()) app.populateModels();
 
-  // Wait for Google Identity Services library to load before attempting silent sign-in
-  const waitGsi = setInterval(() => {
-    if (typeof google !== 'undefined' && google.accounts && google.accounts.id && google.accounts.oauth2) {
-      clearInterval(waitGsi);
-      app.initTokenClient();
+  // Reuse a token from this browser before asking Google. A silent refresh
+  // never opens a popup; the sign-in button is what may show Google's window.
+  if (app.restoreGoogleSession()) app.updateGoogleStatus(true);
 
-      if (app.db.get('google_signed_in') === 'true' && app.tokenClient) {
-        // Silent token refresh on page reload
-        app.tokenClient.requestAccessToken({ prompt: '' });
-      } else {
-        google.accounts.id.prompt((notification) => {
-          if (notification.isSkippedMoment() || notification.isDismissedMoment()) {
-            if (!app.accessToken) app.updateGoogleStatus(false);
-          }
-        });
-      }
-    }
-  }, 500);
+  let gsiWaits = 0;
+  const waitGsi = setInterval(() => {
+    gsiWaits += 1;
+    const ready = typeof google !== 'undefined' && google.accounts && google.accounts.oauth2;
+    if (!ready && gsiWaits < 50) return;
+    clearInterval(waitGsi);
+    if (!ready) return;
+    app.initTokenClient();
+    if (app.googleTokenFresh() || app.db.get(app.GOOGLE_SIGNED_IN_KEY) !== 'true') return;
+    app.updateGoogleStatus(false, true);
+    app.ensureSheetsAccess({ interactive: false }).then(() => {
+      if (new URLSearchParams(window.location.search).get('docId')) app.loadFromUrl();
+    }).catch(() => {
+      if (!app.googleTokenFresh()) app.updateGoogleStatus(false);
+    });
+  }, 200);
 
   app.recentDocsSort?.addEventListener('change', app.renderRecentDocs);
 
   window.addEventListener('popstate', app.loadFromUrl);
+  window.addEventListener('storage', app.onGoogleAuthStorage);
   app.renderRecentDocs();
   app.loadFromUrl(); // Load itinerary data from URL if present
 })();

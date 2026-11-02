@@ -34,7 +34,7 @@ export function installSync(app) {
     if (app.autoSyncInterval) clearInterval(app.autoSyncInterval);
     app.autoSyncInterval = setInterval(() => {
       app.updateSyncStatusLabel();
-      if (app.accessToken && app.lastSyncedDocId) {
+      if (app.lastSyncedDocId && (app.googleTokenFresh() || app.db.get(app.GOOGLE_SIGNED_IN_KEY) === 'true')) {
         app.fetchSheetData(app.lastSyncedDocId, app.h1.textContent, app.lastSyncedGid, true, true);
       }
     }, 5 * 60 * 1000);
