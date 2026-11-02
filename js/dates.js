@@ -58,30 +58,46 @@ export function installDates(app) {
   app.parseSmartDate = function parseSmartDate(str, fallbackYear = null) {
     const s = (str || '').toString().trim();
     if (!s) return null;
-    const now = new Date();
+    // Date-only ISO strings are UTC midnight. Read the calendar day directly.
+    if (/^\d{4}-\d{2}-\d{2}(?:[T\s].*)?$/.test(s)) return app.normalizeYmd(s) || null;
 
+    const now = new Date();
     const yrMatch = s.match(/\b(202[0-9]|203[0-9])\b/);
     const explicitYear = yrMatch ? parseInt(yrMatch[1], 10) : null;
     const baseYear = explicitYear || fallbackYear || (app.parsed && app.parsed.dates ? app.detectItineraryYear(app.parsed.dates) : now.getFullYear());
+    const months = {
+      jan: 0, january: 0, feb: 1, february: 1, mar: 2, march: 2,
+      apr: 3, april: 3, may: 4, jun: 5, june: 5, jul: 6, july: 6,
+      aug: 7, august: 7, sep: 8, sept: 8, september: 8, oct: 9, october: 9,
+      nov: 10, november: 10, dec: 11, december: 11
+    };
 
-    let d = new Date(s);
-    if (isNaN(d.getTime()) || !yrMatch) {
-      const cleanStr = s.replace(/^[a-zA-Z]{3,}\s*,?\s*/, '');
-      const testWithYear = new Date(`${cleanStr}, ${baseYear}`);
-      if (!isNaN(testWithYear.getTime())) {
-        d = testWithYear;
-      } else if (!isNaN(d.getTime())) {
-        d.setFullYear(baseYear);
-      }
-    } else if (explicitYear) {
-      d.setFullYear(explicitYear);
+    function asYmd(year, monthIndex, day) {
+      const dt = new Date(year, monthIndex, day);
+      if (dt.getFullYear() !== year || dt.getMonth() !== monthIndex || dt.getDate() !== day) return null;
+      return `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     }
 
-    if (isNaN(d.getTime())) return null;
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
+    const slashYear = s.match(/^(\d{4})[\/.](\d{1,2})[\/.](\d{1,2})$/);
+    if (slashYear) {
+      const year = Number(slashYear[1]);
+      const useYear = year >= 2020 && year <= 2039 ? year : baseYear;
+      return asYmd(useYear, Number(slashYear[2]) - 1, Number(slashYear[3]));
+    }
+
+    const body = s.replace(/^(?:sun|mon|tue|wed|thu|fri|sat)[a-z]*\s*,?\s+/i, '');
+    const monthFirst = body.match(/\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?!\d)/i);
+    if (monthFirst && months[monthFirst[1].toLowerCase()] != null) {
+      return asYmd(baseYear, months[monthFirst[1].toLowerCase()], Number(monthFirst[2]));
+    }
+    const dayFirst = body.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\b/i);
+    if (dayFirst && months[dayFirst[2].toLowerCase()] != null) {
+      return asYmd(baseYear, months[dayFirst[2].toLowerCase()], Number(dayFirst[1]));
+    }
+
+    const numeric = body.match(/^(\d{1,2})[\/.\-](\d{1,2})(?:[\/.\-](\d{4}))?$/);
+    if (!numeric) return null;
+    return asYmd(baseYear, Number(numeric[1]) - 1, Number(numeric[2]));
   };
 
   app.todayYmd = function todayYmd() {

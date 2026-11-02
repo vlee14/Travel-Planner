@@ -128,4 +128,6 @@ Do not put API keys, tokens, or sheet contents in source. `.env` is gitignored a
 
 ## Testing
 
-There is no test runner. Check behavior by running `python serve.py` and exercising the path. Useful cases: paste a small grid, generate a trip in the builder, edit a day, reload a `?data=` link, and toggle theme and offline. For a linked sheet, confirm a one-cell edit does not wipe neighboring columns or merges.
+Unit tests live in `test/` and use Node's built-in runner. From the repo root, run `node --test test/*.test.js`. They cover dates, sheet parsing, linked-sheet diffs, HTML sanitizing, and builder day conversion. `test/dom.js` is only a stand-in so those modules can run outside the browser.
+
+Check UI behavior by running `python serve.py` and exercising the path. Useful cases: paste a small grid, generate a trip in the builder, edit a day, reload a `?data=` link, and toggle theme and offline. For a linked sheet, confirm a one-cell edit does not wipe neighboring columns or merges.
