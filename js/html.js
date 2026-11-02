@@ -44,37 +44,104 @@ export function installHtml(app) {
     return div.innerHTML;
   };
 
+  app.safeHttpUrl = function safeHttpUrl(href) {
+    const raw = (href || '').trim();
+    if (!raw) return '';
+    const withScheme = /^www\./i.test(raw) ? `https://${raw}` : raw;
+    try {
+      const url = new URL(withScheme);
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+      return url.href;
+    } catch (err) {
+      return '';
+    }
+  };
+
   app.getTextContent = function getTextContent(htmlStr) {
     const div = document.createElement('div');
-    div.innerHTML = htmlStr;
-    return div.textContent || '';
+    div.innerHTML = htmlStr || '';
+    const text = div.textContent || '';
+    return text.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/gi, '$1 ($2)');
+  };
+
+  app.activityEditorText = function activityEditorText(html) {
+    const div = document.createElement('div');
+    div.innerHTML = html || '';
+    function walk(node) {
+      if (node.nodeType === Node.TEXT_NODE) return node.textContent;
+      if (node.nodeType !== Node.ELEMENT_NODE) return '';
+      if (node.tagName === 'BR') return '\n';
+      const inner = Array.from(node.childNodes).map(walk).join('');
+      if (node.tagName === 'A') {
+        const href = app.safeHttpUrl(node.getAttribute('href') || '');
+        const label = inner.replace(/\s+/g, ' ').trim().replace(/[\[\]]/g, '');
+        if (!href) return label;
+        return `[${label || href}](${href.replace(/[()]/g, match => (match === '(' ? '%28' : '%29'))})`;
+      }
+      if (node.tagName === 'P' || node.tagName === 'DIV' || node.tagName === 'LI') {
+        return `${inner.replace(/[ \t]+$/g, '')}\n`;
+      }
+      return inner;
+    }
+    return Array.from(div.childNodes).map(walk).join('')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  };
+
+  app.linkifyPlainText = function linkifyPlainText(text) {
+    const str = text || '';
+    const re = /((?:https?:\/\/|www\.)[^\s<]+)/gi;
+    let out = '';
+    let last = 0;
+    for (const match of str.matchAll(re)) {
+      const end = match.index + match[0].length;
+      const trail = match[0].match(/[.,);:!?]+$/)?.[0] || '';
+      const raw = trail ? match[0].slice(0, -trail.length) : match[0];
+      const href = app.safeHttpUrl(raw);
+      out += app.escapeHtml(str.slice(last, match.index));
+      if (!href) out += app.escapeHtml(match[0]);
+      else {
+        out += `<a href="${href}" target="_blank" rel="noopener noreferrer">${app.escapeHtml(raw)}</a>`;
+        out += app.escapeHtml(trail);
+      }
+      last = end;
+    }
+    out += app.escapeHtml(str.slice(last));
+    return out;
   };
 
   app.linkifyAndSanitize = function linkifyAndSanitize(str) {
+    const withMarkdown = (str || '').replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (match, label, href) => {
+      const url = app.safeHttpUrl(href);
+      if (!url) return match;
+      return `<a href="${url}">${app.escapeHtml(label)}</a>`;
+    });
     const div = document.createElement('div');
-    div.innerHTML = str;
-    // Convert newlines to <br> to ensure they are preserved as breaks
-    div.innerHTML = (str || '').replace(/\n/g, '<br>');
+    div.innerHTML = withMarkdown.replace(/\n/g, '<br>');
 
-    function walk(node) {
+    function walk(node, inLink) {
       if (node.nodeType === Node.TEXT_NODE) {
-        return app.escapeHtml(node.textContent);
+        return inLink ? app.escapeHtml(node.textContent) : app.linkifyPlainText(node.textContent);
       }
       if (node.nodeType === Node.ELEMENT_NODE) {
         if (node.tagName === 'BR') return '<br>';
         if (node.tagName === 'A' && node.hasAttribute('href')) {
+          const href = app.safeHttpUrl(node.getAttribute('href'));
+          const inner = Array.from(node.childNodes).map(child => walk(child, true)).join('');
+          if (!href) return inner;
           const a = document.createElement('a');
-          a.href = node.getAttribute('href');
+          a.href = href;
           a.target = '_blank';
           a.rel = 'noopener noreferrer';
-          a.innerHTML = Array.from(node.childNodes).map(walk).join('');
+          a.innerHTML = inner;
           return a.outerHTML;
         }
-        return Array.from(node.childNodes).map(walk).join('');
+        return Array.from(node.childNodes).map(child => walk(child, inLink)).join('');
       }
       return '';
     }
-    return Array.from(div.childNodes).map(walk).join('');
+    return Array.from(div.childNodes).map(node => walk(node, false)).join('');
   };
 
   app.simplifyHtml = function simplifyHtml(html) {

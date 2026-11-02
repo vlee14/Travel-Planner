@@ -53,8 +53,10 @@ export function installDrive(app) {
     // 2. Initialize Authorization (Google Drive access)
     app.tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: app.googleClientId,
-      scope: 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets.readonly',
+      scope: 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets',
       callback: (response) => {
+        const pending = app.pendingAuth;
+        app.pendingAuth = null;
         if (response.error) {
           if (response.error === 'immediate_failed' || response.error === 'interaction_required') {
             app.db.remove('google_signed_in');
@@ -63,12 +65,17 @@ export function installDrive(app) {
             console.warn('Google Auth silent token warning:', response.error);
             app.updateGoogleStatus(false);
           }
+          if (pending) {
+            const cancelled = response.error === 'access_denied' || response.error === 'popup_closed';
+            pending.reject(new Error(cancelled ? 'Google sign-in was cancelled.' : 'Google sign-in failed. Try again.'));
+          }
           return;
         }
         app.db.set('google_signed_in', 'true');
         app.accessToken = response.access_token;
         app.updateGoogleStatus(true);
-        app.loadFromUrl(); // Re-check if we need to load a docId now that we're authed
+        if (pending) pending.resolve(app.accessToken);
+        else app.loadFromUrl();
       },
     });
   };
@@ -192,8 +199,8 @@ export function installDrive(app) {
   app.fetchSheetData = async function fetchSheetData(fileId, fileName, gid = '0', skipHistory = false, silent = false) {
     if (!silent) app.showError(`Fetching "${fileName}"...`);
     try {
-      // Use Sheets API v4 to get formatted values and merge metadata from the first tab
-      const url = `https://sheets.googleapis.com/v4/spreadsheets/${fileId}?includeGridData=true&fields=properties.title,sheets(merges,data(rowData(values(formattedValue))))`;
+      // Use Sheets API v4 to get formatted values and merge metadata
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${fileId}?includeGridData=true&fields=properties.title,sheets(properties(sheetId,title),merges,data(rowData(values(formattedValue))))`;
       const response = await fetch(url, {
         headers: { 'Authorization': `Bearer ${app.accessToken}` }
       });
@@ -207,8 +214,12 @@ export function installDrive(app) {
       const data = await response.json();
       const spreadsheetTitle = data.properties?.title || fileName;
 
-      // Requirement: Always use the first tab
-      const sheet = data.sheets[0];
+      const sheets = data.sheets || [];
+      const requestedGid = String(gid || '0');
+      let sheet = requestedGid !== '0'
+        ? sheets.find(item => String(item.properties?.sheetId) === requestedGid)
+        : null;
+      if (!sheet) sheet = sheets[0];
       if (!sheet) throw new Error('Spreadsheet contains no sheets.');
 
       const rows = [];
@@ -242,6 +253,12 @@ export function installDrive(app) {
       });
 
       app.db.set(app.DOC_CACHE_PREFIX + fileId + '_' + gid, JSON.stringify(rows));
+      app.rememberLinkedSheet(fileId, gid, rows, {
+        sheetId: sheet.properties?.sheetId ?? 0,
+        sheetName: sheet.properties?.title || 'Sheet1',
+        title: spreadsheetTitle,
+        merges: sheet.merges || []
+      });
       app.h1.textContent = spreadsheetTitle;
       app.trackRecentDoc(fileId, spreadsheetTitle, gid);
       if (!skipHistory) {
@@ -270,5 +287,168 @@ export function installDrive(app) {
       app.driveUrlInput.value = `https://docs.google.com/spreadsheets/d/${doc.id}/edit`;
       app.fetchSheetData(doc.id, doc.name);
     }
+  };
+
+  app.rememberLinkedSheet = function rememberLinkedSheet(fileId, gid, grid, meta = {}) {
+    const previous = app.linkedSheet;
+    app.linkedSheet = {
+      fileId,
+      gid: String(gid == null ? '0' : gid),
+      sheetId: meta.sheetId == null ? (previous && previous.fileId === fileId ? previous.sheetId : null) : meta.sheetId,
+      sheetName: meta.sheetName || (previous && previous.fileId === fileId ? previous.sheetName : '') || 'Sheet1',
+      title: meta.title || (previous && previous.fileId === fileId ? previous.title : '') || '',
+      grid: (grid || []).map(row => (row || []).map(cell => (cell == null ? '' : String(cell)))),
+      merges: meta.merges
+        ? meta.merges.map(merge => ({
+          startRowIndex: merge.startRowIndex || 0,
+          endRowIndex: merge.endRowIndex || 0,
+          startColumnIndex: merge.startColumnIndex || 0,
+          endColumnIndex: merge.endColumnIndex || 0
+        }))
+        : ((previous && previous.fileId === fileId && previous.merges) || [])
+    };
+  };
+
+  app.stampSheetId = function stampSheetId(request, sheetId) {
+    const copy = JSON.parse(JSON.stringify(request));
+    const walk = (node) => {
+      if (!node || typeof node !== 'object') return;
+      if (Object.prototype.hasOwnProperty.call(node, 'sheetId')) node.sheetId = sheetId;
+      Object.values(node).forEach(walk);
+    };
+    walk(copy);
+    return copy;
+  };
+
+  app.sheetsRequest = async function sheetsRequest(path, options = {}) {
+    const response = await fetch(`https://sheets.googleapis.com/v4/${path}`, {
+      method: options.method || 'GET',
+      headers: {
+        Authorization: `Bearer ${app.accessToken}`,
+        ...(options.body ? { 'Content-Type': 'application/json' } : {})
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const details = data.error?.details || [];
+      const error = new Error(data.error?.message || `Sheets request failed (${response.status})`);
+      error.status = response.status;
+      error.reason = details.map(detail => detail.reason).filter(Boolean).join(' ') || data.error?.status || '';
+      throw error;
+    }
+    return data;
+  };
+
+  app.isSheetsScopeError = function isSheetsScopeError(error) {
+    return error.status === 403 && /ACCESS_TOKEN_SCOPE_INSUFFICIENT|insufficient authentication scopes/i.test(`${error.reason || ''} ${error.message || ''}`);
+  };
+
+  app.sheetsPermissionMessage = function sheetsPermissionMessage(error) {
+    if (error.status === 403 && !app.isSheetsScopeError(error)) {
+      return 'Google did not allow editing this spreadsheet. Fork a copy instead, or ask the owner for edit access.';
+    }
+    return error.message || 'Could not save to Google Sheets.';
+  };
+
+  app.ensureSheetsAccess = function ensureSheetsAccess(options = {}) {
+    if (app.accessToken && !options.force) return Promise.resolve(app.accessToken);
+    return new Promise((resolve, reject) => {
+      app.initTokenClient();
+      if (!app.tokenClient) {
+        reject(new Error('Google sign-in is still loading. Wait a moment and try again.'));
+        return;
+      }
+      app.pendingAuth = { resolve, reject };
+      app.tokenClient.requestAccessToken({ prompt: options.prompt || (options.force ? 'consent' : 'select_account') });
+    });
+  };
+
+  app.refreshLinkedSheetMeta = async function refreshLinkedSheetMeta() {
+    const link = app.linkedSheet;
+    const data = await app.sheetsRequest(`spreadsheets/${encodeURIComponent(link.fileId)}?fields=properties.title,sheets(properties(sheetId,title),merges)`);
+    const sheets = data.sheets || [];
+    let sheet = null;
+    if (link.gid && link.gid !== '0') {
+      sheet = sheets.find(item => String(item.properties?.sheetId) === String(link.gid));
+    }
+    if (!sheet && link.sheetId != null) {
+      sheet = sheets.find(item => item.properties?.sheetId === link.sheetId);
+    }
+    if (!sheet) sheet = sheets[0];
+    if (!sheet) throw new Error('Spreadsheet contains no sheets.');
+    link.sheetId = sheet.properties?.sheetId ?? 0;
+    link.sheetName = sheet.properties?.title || 'Sheet1';
+    if (!link.title) link.title = data.properties?.title || '';
+    link.merges = (sheet.merges || []).map(merge => ({
+      startRowIndex: merge.startRowIndex || 0,
+      endRowIndex: merge.endRowIndex || 0,
+      startColumnIndex: merge.startColumnIndex || 0,
+      endColumnIndex: merge.endColumnIndex || 0
+    }));
+    return link;
+  };
+
+  app.writeLinkedSheet = async function writeLinkedSheet(days, title) {
+    if (!app.linkedSheet?.fileId) throw new Error('This trip is not linked to a Google Sheet.');
+    if (!app.accessToken) await app.ensureSheetsAccess();
+    let link;
+    try {
+      link = await app.refreshLinkedSheetMeta();
+    } catch (error) {
+      if (app.isSheetsScopeError(error) || error.status === 401) {
+        await app.ensureSheetsAccess({ force: true, prompt: 'consent' });
+        link = await app.refreshLinkedSheetMeta();
+      } else {
+        throw new Error(app.sheetsPermissionMessage(error));
+      }
+    }
+    const plan = app.planLinkedSheetEdits(link.grid, days, link.merges || []);
+    const requests = plan.requests.map(request => app.stampSheetId(request, link.sheetId));
+    plan.cells.forEach(cell => {
+      requests.push(app.stampSheetId({
+        updateCells: {
+          range: {
+            sheetId: 0,
+            startRowIndex: cell.row,
+            endRowIndex: cell.row + 1,
+            startColumnIndex: cell.col,
+            endColumnIndex: cell.col + 1
+          },
+          rows: [{ values: [{ userEnteredValue: { stringValue: cell.value } }] }],
+          fields: 'userEnteredValue'
+        }
+      }, link.sheetId));
+    });
+    if (title && title !== link.title) {
+      requests.push({
+        updateSpreadsheetProperties: {
+          properties: { title },
+          fields: 'title'
+        }
+      });
+    }
+    if (requests.length) {
+      try {
+        await app.sheetsRequest(`spreadsheets/${encodeURIComponent(link.fileId)}:batchUpdate`, {
+          method: 'POST',
+          body: { requests }
+        });
+      } catch (error) {
+        if (app.isSheetsScopeError(error) || error.status === 401) {
+          await app.ensureSheetsAccess({ force: true, prompt: 'consent' });
+          await app.sheetsRequest(`spreadsheets/${encodeURIComponent(link.fileId)}:batchUpdate`, {
+            method: 'POST',
+            body: { requests }
+          });
+        } else {
+          throw new Error(app.sheetsPermissionMessage(error));
+        }
+      }
+    }
+    link.grid = plan.grid;
+    link.merges = plan.merges;
+    link.title = title || link.title;
+    return plan;
   };
 }

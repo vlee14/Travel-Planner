@@ -38,6 +38,7 @@ export function installItinerary(app) {
     // Stop auto-sync
     if (app.autoSyncInterval) { clearInterval(app.autoSyncInterval); app.autoSyncInterval = null; }
     app.lastSyncedDocId = null;
+    app.linkedSheet = null;
 
     // Clear rendered content
     app.listContent.innerHTML = '';
@@ -817,7 +818,9 @@ export function installItinerary(app) {
 
         if (cached.startsWith('[[')) {
           // Cached JSON grid from Sheets API
-          app.buildItineraryFromRows(JSON.parse(cached), true);
+          const cachedRows = JSON.parse(cached);
+          app.rememberLinkedSheet(docId, gid, cachedRows, { title: existingName || '' });
+          app.buildItineraryFromRows(cachedRows, true);
         } else {
           // Legacy CSV cache
           app.buildItinerary(cached, true);

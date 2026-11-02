@@ -240,11 +240,6 @@ export function installWeather(app) {
           if (!sumEl) {
             sumEl = document.createElement('span');
             sumEl.className = 'weather-summary-inline';
-            sumEl.style.marginLeft = '0.75rem';
-            sumEl.style.display = 'inline-flex';
-            sumEl.style.alignItems = 'center';
-            sumEl.style.gap = '0.35rem';
-            sumEl.style.color = 'var(--text)';
             dateRangeEl.parentNode.insertBefore(sumEl, dateRangeEl.nextSibling);
           }
           const tempStr = minHigh === maxHigh ? app.formatTemp(maxHigh) : `${app.formatTemp(minHigh)}–${app.formatTemp(maxHigh)}`;
@@ -256,10 +251,6 @@ export function installWeather(app) {
               const note = document.createElement('div');
               note.className = 'historical-note';
               note.textContent = 'Includes historical data (last year)';
-              note.style.fontSize = '0.85rem';
-              note.style.fontStyle = 'italic';
-              note.style.marginTop = '0.25rem';
-              note.style.opacity = '0.8';
               meta.appendChild(note);
             }
           }

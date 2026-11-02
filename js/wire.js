@@ -831,6 +831,8 @@ document.addEventListener('keydown', (event) => {
 });
 
 document.getElementById('btn-builder-apply')?.addEventListener('click', app.applyBuilder);
+document.getElementById('btn-builder-save-sheet')?.addEventListener('click', app.saveBuilderToSheet);
+document.getElementById('btn-builder-fork')?.addEventListener('click', app.applyBuilder);
 document.getElementById('btn-builder-cancel')?.addEventListener('click', app.cancelEditor);
 
 app.tabs.forEach(tab => {

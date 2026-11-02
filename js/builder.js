@@ -13,14 +13,16 @@ export function installBuilder(app) {
     };
   };
 
-  app.placeholderDay = function placeholderDay(date) {
-    return app.blankDay({
+  app.placeholderDay = function placeholderDay(date, source = {}) {
+    const day = app.blankDay({
       date: date || '',
       location: '',
       hotel: '',
       activities: [{ time: '', content: '' }],
       notes: ''
     });
+    if (source.sourceCol != null && source.sourceCol !== '') day.sourceCol = Number(source.sourceCol);
+    return day;
   };
 
   app.earliestBuilderDate = function earliestBuilderDate(days) {
@@ -301,7 +303,7 @@ export function installBuilder(app) {
   app.applyDayRemoval = function applyDayRemoval(days, index, mode) {
     if (mode === 'placeholder') {
       const next = days.map(day => ({ ...day }));
-      next[index] = app.placeholderDay(days[index].date);
+      next[index] = app.placeholderDay(days[index].date, days[index]);
       return next;
     }
     const next = days.filter((_, i) => i !== index).map(day => ({ ...day }));
@@ -364,9 +366,17 @@ export function installBuilder(app) {
     const cancelBtn = document.getElementById('btn-builder-cancel');
     const note = document.getElementById('builder-sheet-note');
     const heading = document.querySelector('.input-section h2');
-    if (applyBtn) applyBtn.textContent = app.builderEditing ? 'Save changes' : 'Create itinerary';
+    const linked = app.builderEditing && !!(app.lastSyncedDocId && app.linkedSheet);
+    if (applyBtn) {
+      applyBtn.hidden = linked;
+      applyBtn.textContent = app.builderEditing ? 'Save changes' : 'Create itinerary';
+    }
+    const saveSheetBtn = document.getElementById('btn-builder-save-sheet');
+    const forkBtn = document.getElementById('btn-builder-fork');
+    if (saveSheetBtn) saveSheetBtn.hidden = !linked;
+    if (forkBtn) forkBtn.hidden = !linked;
     if (cancelBtn) cancelBtn.hidden = !app.builderEditing;
-    if (note) note.hidden = !(app.builderEditing && app.lastSyncedDocId);
+    if (note) note.hidden = !linked;
     if (heading) {
       const active = document.querySelector('.tab.active')?.dataset.tab;
       heading.textContent = app.builderEditing ? 'Edit trip' : (active === 'build' ? 'Build a trip' : 'Import');
@@ -374,16 +384,26 @@ export function installBuilder(app) {
   };
 
   app.collectBuilderDays = function collectBuilderDays() {
-    return Array.from(document.querySelectorAll('#builder-days .builder-day')).map(card => ({
-      date: card.querySelector('[data-field="date"]').value,
-      location: card.querySelector('[data-field="location"]').value.trim(),
-      hotel: card.querySelector('[data-field="hotel"]').value.trim(),
-      activities: Array.from(card.querySelectorAll('.builder-activity')).map(row => ({
-        time: row.querySelector('[data-field="time"]').value,
-        content: row.querySelector('[data-field="content"]').value.trim()
-      })),
-      notes: card.querySelector('[data-field="notes"]').value
-    }));
+    return Array.from(document.querySelectorAll('#builder-days .builder-day')).map(card => {
+      const sourceCol = card.dataset.sourceCol;
+      const day = {
+        date: card.querySelector('[data-field="date"]').value,
+        location: card.querySelector('[data-field="location"]').value.trim(),
+        hotel: card.querySelector('[data-field="hotel"]').value.trim(),
+        activities: Array.from(card.querySelectorAll('.builder-activity')).map(row => {
+          const sourceRow = row.dataset.sourceRow;
+          const act = {
+            time: row.querySelector('[data-field="time"]').value,
+            content: row.querySelector('[data-field="content"]').value.trim()
+          };
+          if (sourceRow != null && sourceRow !== '') act.sourceRow = Number(sourceRow);
+          return act;
+        }),
+        notes: card.querySelector('[data-field="notes"]').value
+      };
+      if (sourceCol != null && sourceCol !== '') day.sourceCol = Number(sourceCol);
+      return day;
+    });
   };
 
   app.renderBuilderDays = function renderBuilderDays(days) {
@@ -395,6 +415,7 @@ export function installBuilder(app) {
       const card = document.createElement('div');
       card.className = 'builder-day';
       card.dataset.index = String(index);
+      if (day.sourceCol != null && day.sourceCol !== '') card.dataset.sourceCol = String(day.sourceCol);
 
       const head = document.createElement('div');
       head.className = 'builder-day-head';
@@ -427,7 +448,7 @@ export function installBuilder(app) {
       grid.append(
         app.builderField('Date', 'date', 'date', day.date || ''),
         app.builderField('Location', 'location', 'text', day.location || '', 'City or place'),
-        app.builderField('Hotel', 'hotel', 'text', day.hotel || '', 'Optional stay', true)
+        app.builderField('Hotel', 'hotel', 'text', day.hotel || '', 'Optional stay')
       );
 
       const activities = document.createElement('div');
@@ -446,6 +467,7 @@ export function installBuilder(app) {
         atEnd ? 'Add a day at the end' : `Insert a day after day ${index + 1}`
       ));
     });
+    daysEl.querySelectorAll('.builder-activity textarea').forEach(el => app.fitActivityField(el));
     app.paintSchedule(days);
   };
 
@@ -556,25 +578,198 @@ export function installBuilder(app) {
     return wrap;
   };
 
+  const trashIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
+  const linkIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l2.12-2.12a5 5 0 0 0-7.07-7.07L11.2 5.7"/><path d="M14 11a5 5 0 0 0-7.54-.54L4.34 12.6a5 5 0 0 0 7.07 7.07l1.39-1.39"/></svg>';
+  let activityFieldSerial = 0;
+
+  app.activityIconButton = function activityIconButton(label, className, svg) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `builder-mini activity-icon ${className}`;
+    btn.setAttribute('aria-label', label);
+    btn.title = label;
+    btn.innerHTML = svg;
+    return btn;
+  };
+
+  app.fitActivityField = function fitActivityField(el) {
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  };
+
   app.activityRow = function activityRow(act, actIndex, onlyOne) {
     const row = document.createElement('div');
     row.className = 'builder-activity';
+    const content = document.createElement('textarea');
+    content.dataset.field = 'content';
+    content.rows = 1;
+    content.value = act.content || '';
+    content.placeholder = 'Activity';
+    content.autocomplete = 'off';
+    content.setAttribute('aria-label', 'Activity');
+    content.addEventListener('input', () => {
+      app.fitActivityField(content);
+      syncLinkState();
+    });
+
+    const tools = document.createElement('div');
+    tools.className = 'activity-tools';
     const time = document.createElement('input');
     time.type = 'time';
     time.dataset.field = 'time';
     time.value = act.time || '';
     time.setAttribute('aria-label', 'Activity time');
-    const content = document.createElement('input');
-    content.type = 'text';
-    content.dataset.field = 'content';
-    content.value = act.content || '';
-    content.placeholder = 'Activity';
-    content.autocomplete = 'off';
-    content.setAttribute('aria-label', 'Activity');
-    const remove = app.miniButton('Remove', 'remove-activity', onlyOne, true);
+    if (act.sourceRow != null && act.sourceRow !== '') row.dataset.sourceRow = String(act.sourceRow);
+
+    const boxId = `activity-linkbox-${++activityFieldSerial}`;
+    const linkBtn = app.activityIconButton('Add link', 'activity-link', linkIcon);
+    linkBtn.setAttribute('aria-expanded', 'false');
+    linkBtn.setAttribute('aria-controls', boxId);
+    const remove = app.activityIconButton('Remove activity', 'danger activity-delete', trashIcon);
+    remove.dataset.action = 'remove-activity';
     remove.dataset.index = String(actIndex);
-    remove.setAttribute('aria-label', 'Remove activity');
-    row.append(time, content, remove);
+    remove.disabled = onlyOne;
+    tools.append(linkBtn, remove);
+
+    const linkbox = document.createElement('div');
+    linkbox.className = 'activity-linkbox';
+    linkbox.id = boxId;
+    linkbox.hidden = true;
+    const labelInput = document.createElement('input');
+    labelInput.type = 'text';
+    labelInput.placeholder = 'Link text';
+    labelInput.autocomplete = 'off';
+    labelInput.setAttribute('aria-label', 'Link text');
+    const urlInput = document.createElement('input');
+    urlInput.type = 'url';
+    urlInput.placeholder = 'https://';
+    urlInput.inputMode = 'url';
+    urlInput.autocomplete = 'off';
+    urlInput.autocapitalize = 'off';
+    urlInput.spellcheck = false;
+    urlInput.setAttribute('aria-label', 'Link URL');
+    const error = document.createElement('p');
+    error.className = 'activity-link-error';
+    error.hidden = true;
+    const actions = document.createElement('div');
+    actions.className = 'activity-link-actions';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'builder-mini';
+    cancelBtn.textContent = 'Cancel';
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'builder-mini';
+    addBtn.dataset.linkAdd = 'true';
+    addBtn.textContent = 'Add link';
+    actions.append(cancelBtn, addBtn);
+    linkbox.append(labelInput, urlInput, error, actions);
+
+    let saved = { start: 0, end: 0 };
+    let pendingSelection = null;
+    const hasLink = () => /\]\(https?:\/\//i.test(content.value);
+    function syncLinkState() {
+      linkBtn.classList.toggle('is-on', !linkbox.hidden || hasLink());
+    }
+    function closeLinkBox() {
+      linkbox.hidden = true;
+      linkBtn.setAttribute('aria-expanded', 'false');
+      error.hidden = true;
+      urlInput.removeAttribute('aria-invalid');
+      syncLinkState();
+    }
+    function openLinkBox() {
+      saved = pendingSelection || { start: content.value.length, end: content.value.length };
+      pendingSelection = null;
+      const selected = content.value.slice(saved.start, saved.end).trim();
+      labelInput.value = selected;
+      urlInput.value = '';
+      error.hidden = true;
+      urlInput.removeAttribute('aria-invalid');
+      linkbox.hidden = false;
+      linkBtn.setAttribute('aria-expanded', 'true');
+      syncLinkState();
+      (selected ? urlInput : labelInput).focus();
+    }
+    function insertLink() {
+      let url = urlInput.value.trim();
+      if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`;
+      const href = app.safeHttpUrl(url);
+      if (!href) {
+        error.hidden = false;
+        error.textContent = 'Enter a full web address, like https://example.com';
+        urlInput.setAttribute('aria-invalid', 'true');
+        urlInput.focus();
+        return;
+      }
+      const start = Math.min(saved.start, content.value.length);
+      const end = Math.max(start, Math.min(saved.end, content.value.length));
+      const selected = content.value.slice(start, end).trim();
+      const label = (labelInput.value.trim() || selected || href).replace(/[\[\]]/g, '').replace(/\s+/g, ' ');
+      const before = content.value.slice(0, start);
+      let lead = '';
+      if (start === end && before && !/\s$/.test(before)) {
+        lead = start === content.value.length ? '\n' : ' ';
+      }
+      const markdown = `${lead}[${label}](${href.replace(/[()]/g, match => (match === '(' ? '%28' : '%29'))})`;
+      content.value = before + markdown + content.value.slice(end);
+      const caret = start + markdown.length;
+      closeLinkBox();
+      app.fitActivityField(content);
+      content.focus();
+      content.setSelectionRange(caret, caret);
+    }
+
+    linkBtn.addEventListener('pointerdown', () => {
+      pendingSelection = document.activeElement === content
+        ? { start: content.selectionStart, end: content.selectionEnd }
+        : null;
+    });
+    linkBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (linkbox.hidden) openLinkBox();
+      else closeLinkBox();
+    });
+    cancelBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      closeLinkBox();
+      content.focus();
+    });
+    addBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      insertLink();
+    });
+    urlInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        insertLink();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        closeLinkBox();
+        content.focus();
+      }
+    });
+    labelInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        urlInput.focus();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        closeLinkBox();
+        content.focus();
+      }
+    });
+    urlInput.addEventListener('input', () => {
+      error.hidden = true;
+      urlInput.removeAttribute('aria-invalid');
+    });
+
+    const line = document.createElement('div');
+    line.className = 'activity-line';
+    line.append(time, content, tools);
+    row.append(line, linkbox);
+    queueMicrotask(() => app.fitActivityField(content));
+    syncLinkState();
     return row;
   };
 
@@ -600,25 +795,30 @@ export function installBuilder(app) {
       if (!location && !dateLabel) continue;
       let lastTimed = -1;
       model.rows.forEach((row, idx) => {
-        const content = app.getTextContent(row.cells[i - 1] || '').trim();
+        const content = app.activityEditorText(row.cells[i - 1] || '');
         if (content && (row.time || '').trim()) lastTimed = idx;
       });
       const activities = [];
       const noteLines = [];
       model.rows.forEach((row, idx) => {
-        const content = app.getTextContent(row.cells[i - 1] || '').trim();
+        const content = app.activityEditorText(row.cells[i - 1] || '');
         if (!content) return;
         const time = (row.time || '').trim();
-        if (idx <= lastTimed && time) activities.push({ time: app.timeToInputValue(time), content });
-        else noteLines.push(content);
+        if (idx <= lastTimed && time) {
+          const activity = { time: app.timeToInputValue(time), content };
+          if (row.gridRow != null) activity.sourceRow = row.gridRow;
+          activities.push(activity);
+        } else noteLines.push(content);
       });
-      days.push({
+      const day = {
         date: app.parseSmartDate(dateLabel) || '',
         location,
         hotel: model.hotelCells ? app.getTextContent(model.hotelCells[i] || '').trim() : '',
         activities: activities.length ? activities : [{ time: '', content: '' }],
-        notes: noteLines.join('\n')
-      });
+        notes: noteLines.join('\n'),
+        sourceCol: i
+      };
+      days.push(day);
     }
     return days.length ? days : [app.blankDay()];
   };
@@ -708,23 +908,70 @@ export function installBuilder(app) {
     return !!(day.location || day.hotel || (day.notes || '').trim() || (day.activities || []).some(act => (act.content || '').trim()));
   };
 
-  app.applyBuilder = function applyBuilder() {
+  app.readBuilderDraft = function readBuilderDraft() {
     const all = app.collectBuilderDays();
     const incomplete = all.filter(day => app.dayHasDetails(day) && !(day.location && day.date));
     if (incomplete.length) {
       app.showError('Each day needs both a date and a location.');
-      return;
+      return null;
     }
     const days = all.filter(day => day.location && day.date);
     if (!days.length) {
       app.showError('Add at least one day with a date and a location.');
-      return;
+      return null;
     }
     const title = (document.getElementById('builder-title').value || '').trim() || 'Travel Itinerary';
-    app.h1.textContent = title;
+    return { days, title };
+  };
+
+  app.setBuilderBusy = function setBuilderBusy(busy) {
+    ['btn-builder-apply', 'btn-builder-save-sheet', 'btn-builder-fork', 'btn-builder-cancel'].forEach(id => {
+      const btn = document.getElementById(id);
+      if (btn) btn.disabled = busy;
+    });
+    const saveLabel = document.querySelector('#btn-builder-save-sheet .btn-label');
+    if (saveLabel) saveLabel.textContent = busy ? 'Saving…' : 'Save to sheet';
+  };
+
+  app.saveBuilderFork = function saveBuilderFork(draft) {
+    app.h1.textContent = draft.title;
     app.detachSheetSync();
-    const rows = app.daysToRows(days);
+    const rows = app.daysToRows(draft.days);
     app.buildItineraryFromRows(rows, false, app.rowsToCsv(rows));
+  };
+
+  app.applyBuilder = function applyBuilder() {
+    const draft = app.readBuilderDraft();
+    if (!draft) return;
+    app.saveBuilderFork(draft);
+  };
+
+  app.saveBuilderToSheet = async function saveBuilderToSheet() {
+    const draft = app.readBuilderDraft();
+    if (!draft) return;
+    if (!app.lastSyncedDocId || !app.linkedSheet) {
+      app.saveBuilderFork(draft);
+      return;
+    }
+    app.setBuilderBusy(true);
+    app.showError('');
+    try {
+      app.h1.textContent = draft.title;
+      const plan = await app.writeLinkedSheet(draft.days, draft.title);
+      const rows = plan.grid;
+      const fileId = app.linkedSheet.fileId;
+      const gid = app.linkedSheet.gid || '0';
+      app.db.set(app.DOC_CACHE_PREFIX + fileId + '_' + gid, JSON.stringify(rows));
+      app.trackRecentDoc(fileId, draft.title, gid);
+      app.enableSheetSync(fileId, gid);
+      app.updateUrlWithDocId(fileId, gid);
+      app.buildItineraryFromRows(rows, true);
+    } catch (error) {
+      console.error(error);
+      app.showError(error.message || 'Could not save to Google Sheets.');
+    } finally {
+      app.setBuilderBusy(false);
+    }
   };
 
   app.cancelEditor = function cancelEditor() {
