@@ -726,10 +726,10 @@ export function installBuilder(app) {
     if (end < start) { const swap = start; start = end; end = swap; }
     const length = app.daysBetweenYmd(start, end) + 1;
     if (pick.mode === 'ai') {
-      if (length > 14) {
-        if (app.setAiStatus) app.setAiStatus('ai-trip-status', 'Up to 14 days at a time. Shorten the dates, or dream up the extra days one at a time.', true);
+      if (app.AI_TRIP_MAX_DAYS && length > app.AI_TRIP_MAX_DAYS) {
+        if (app.setAiStatus) app.setAiStatus('ai-trip-status', app.aiTripLengthMessage(), true);
         const hint = document.getElementById('schedule-hint');
-        if (hint) hint.textContent = 'Up to 14 days';
+        if (hint) hint.textContent = 'Up to ' + app.AI_TRIP_MAX_DAYS + ' days';
         return;
       }
       app.setAiTripRange(start, end);
@@ -870,10 +870,7 @@ export function installBuilder(app) {
     if (forkBtn) forkBtn.hidden = !linked;
     if (cancelBtn) cancelBtn.hidden = !app.builderEditing;
     if (note) note.hidden = !linked;
-    if (heading) {
-      const active = document.querySelector('.tab.active')?.dataset.tab;
-      heading.textContent = app.builderEditing ? 'Edit trip' : (active === 'build' ? 'Plan your adventure' : 'Import');
-    }
+    if (heading) app.syncInputHeading(document.querySelector('.tabs .tab.active')?.dataset.tab);
   };
 
   app.collectBuilderDays = function collectBuilderDays() {
@@ -936,11 +933,11 @@ export function installBuilder(app) {
       aiBtn.dataset.action = 'ai-day';
       aiBtn.title = 'Dream up this day';
       aiBtn.setAttribute('aria-label', 'Dream up this day');
-      aiBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.6 4.8L18.5 9.4 13.6 11 12 15.8 10.4 11 5.5 9.4l4.9-1.6L12 3z"></path><path d="M18 14l.6 1.8 1.8.6-1.8.6L18 19l-.6-1.8-1.8-.6 1.8-.6L18 14z"></path></svg>';
+      aiBtn.innerHTML = app.icon('sparkle');
       const removeBtn = app.miniButton('', 'remove-day', false, true);
       removeBtn.classList.add('day-delete');
       removeBtn.setAttribute('aria-label', 'Remove day');
-      removeBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
+      removeBtn.innerHTML = app.icon('trash');
       tools.append(aiBtn, removeBtn);
       head.append(handle, title, tools);
       app.bindDayDrag(card, handle);
@@ -1103,7 +1100,6 @@ export function installBuilder(app) {
     return wrap;
   };
 
-  const trashIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
   const linkIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l2.12-2.12a5 5 0 0 0-7.07-7.07L11.2 5.7"/><path d="M14 11a5 5 0 0 0-7.54-.54L4.34 12.6a5 5 0 0 0 7.07 7.07l1.39-1.39"/></svg>';
   let activityFieldSerial = 0;
 
@@ -1202,7 +1198,7 @@ export function installBuilder(app) {
     const linkBtn = app.activityIconButton('Add link', 'activity-link', linkIcon);
     linkBtn.setAttribute('aria-expanded', 'false');
     linkBtn.setAttribute('aria-controls', boxId);
-    const remove = app.activityIconButton('Remove activity', 'danger activity-delete', trashIcon);
+    const remove = app.activityIconButton('Remove activity', 'danger activity-delete', app.icon('trash'));
     remove.dataset.action = 'remove-activity';
     remove.dataset.index = String(actIndex);
     remove.disabled = onlyOne;
@@ -1359,11 +1355,41 @@ export function installBuilder(app) {
     app.setBuilderMode('create');
   };
 
-  app.showBuildPanel = function showBuildPanel() {
-    app.tabs.forEach(t => t.classList.remove('active'));
-    app.panels.forEach(p => p.classList.remove('active'));
-    document.querySelector('.tab[data-tab="build"]').classList.add('active');
-    document.getElementById('panel-build').classList.add('active');
+  app.resetBuilder = function resetBuilder() {
+    app.closeTripRange();
+    if (app.setAiPanel) app.setAiPanel('');
+    const titleInput = document.getElementById('builder-title');
+    if (titleInput) titleInput.value = '';
+    app.commitBuilderDays([app.blankDay()]);
+    app.setBuilderMode('create');
+  };
+
+  app.inputHeading = function inputHeading(tabId) {
+    if (tabId === 'build' && app.builderEditing) return 'Edit trip';
+    if (tabId === 'build') return 'Plan your adventure';
+    if (tabId === 'drive' || tabId === 'paste') return 'Import';
+    return '';
+  };
+
+  app.syncInputHeading = function syncInputHeading(tabId) {
+    const heading = document.getElementById('input-heading');
+    if (!heading) return;
+    const text = app.inputHeading(tabId);
+    heading.textContent = text;
+    heading.hidden = !text;
+  };
+
+  app.showInputTab = function showInputTab(id) {
+    app.tabs.forEach(t => {
+      const on = t.dataset.tab === id;
+      t.classList.toggle('active', on);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    app.panels.forEach(p => {
+      p.classList.toggle('active', p.id === 'panel-' + id);
+    });
+    app.syncInputHeading(id);
+    if (id === 'build') app.ensureBuilder();
   };
 
   app.parsedToDays = function parsedToDays(model) {
@@ -1611,7 +1637,7 @@ export function installBuilder(app) {
     const where = document.getElementById('ai-trip-where');
     const btn = document.getElementById('ai-trip-range-btn');
     const days = app.collectBuilderDays();
-    const named = [...new Set(days.map(day => day.location).filter(Boolean))];
+    const named = app.destinationNames(days);
     if (where && !where.value.trim() && named.length) where.value = named.join(', ');
     const span = (days.length > 1 || named.length) ? app.tripDateSpan(days) : null;
     if (btn && !btn.dataset.start && span) app.setAiTripRange(span.start, span.end);

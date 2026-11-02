@@ -51,9 +51,8 @@ export function installItinerary(app) {
     app.renderRecentDocs();
 
     app.parkBuilderPanel();
-    app.showBuildPanel();
-    app.ensureBuilder();
-    app.setBuilderMode('create');
+    app.showInputTab('recent');
+    app.resetBuilder();
 
     // Clear data from URL
     if (!skip) {
@@ -135,6 +134,7 @@ export function installItinerary(app) {
       if (d && loc) validDayCols.push(i);
     }
     const lastValidColIndex = validDayCols.length ? validDayCols[validDayCols.length - 1] : -1;
+    const bookends = app.bookendColumns(validDayCols.map(i => ({ location: locations[i], id: i })));
 
     // Hotel stays: backfill empty cells with previous hotel; "through" = date before next hotel change.
     let effectiveHotel = [];
@@ -265,6 +265,7 @@ export function installItinerary(app) {
       const fullLocationPlan = fullLocationPlanParts.join('\n\n');
       const hotelInfo = run.hotels.map(h => h.hotel + (h.through ? ` (through ${h.through})` : '')).join(', ');
 
+      const isBookend = run.colIndices.length > 0 && run.colIndices.every(i => bookends.has(i));
       const dateRangeStr = run.dateKeys.length === 1 ? run.dateKeys[0] : `${run.dateKeys[0]} – ${run.dateKeys[run.dateKeys.length - 1]}`;
       const cardEl = document.createElement('div');
       cardEl.className = 'location-card';
@@ -286,6 +287,7 @@ export function installItinerary(app) {
 
       // Store metadata for weather fetching
       cardEl.dataset.location = run.locName;
+      cardEl.dataset.bookend = isBookend ? 'true' : 'false';
       cardEl.dataset.start = run.dateKeys[0];
       cardEl.dataset.end = run.dateKeys[run.dateKeys.length - 1];
 
@@ -385,7 +387,7 @@ export function installItinerary(app) {
         copyBtn.className = 'btn-copy-day';
         copyBtn.title = 'Copy day plan';
         copyBtn.setAttribute('aria-label', 'Copy day plan');
-        copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
+        copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
         copyBtn.onclick = async (e) => {
           e.stopPropagation();
           const lines = [`${dateLabel} — ${run.locName}`];
@@ -407,7 +409,7 @@ export function installItinerary(app) {
         if (notes.length > 0) {
           const btn = document.createElement('button');
           btn.className = 'day-notes-btn';
-          btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`;
+          btn.innerHTML = app.icon('file', 16);
           btn.title = 'Show notes';
 
           const notesDiv = document.createElement('div');
@@ -431,20 +433,23 @@ export function installItinerary(app) {
           dayDiv.appendChild(titleDiv);
         }
 
-        const suggestBtn = document.createElement('button');
-        suggestBtn.className = 'btn-ai-suggest';
-        suggestBtn.title = 'Get AI suggestions for this day';
-        suggestBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.6 4.8L18.5 9.4 13.6 11 12 15.8 10.4 11 5.5 9.4l4.9-1.6L12 3z"></path><path d="M18 14l.6 1.8 1.8.6-1.8.6L18 19l-.6-1.8-1.8-.6 1.8-.6L18 14z"></path></svg>';
-        suggestBtn.onclick = (e) => {
-          e.stopPropagation();
-          if (!app.currentAiKey()) {
-            alert(app.aiKeyMessage());
-            return;
-          }
-          const weather = titleDiv.dataset.weatherSummary;
-          app.getAiSuggestions(run.locName, dateLabel, dailyPlan, fullLocationPlan, hotelInfo, weather);
-        };
-        titleDiv.appendChild(suggestBtn);
+        if (!isBookend) {
+          const suggestBtn = document.createElement('button');
+          suggestBtn.className = 'btn-ai-suggest';
+          suggestBtn.title = 'Get AI suggestions for this day';
+          suggestBtn.setAttribute('aria-label', 'Get AI suggestions for this day');
+          suggestBtn.innerHTML = app.icon('sparkle', 16);
+          suggestBtn.onclick = (e) => {
+            e.stopPropagation();
+            if (!app.currentAiKey()) {
+              alert(app.aiKeyMessage());
+              return;
+            }
+            const weather = titleDiv.dataset.weatherSummary;
+            app.getAiSuggestions(run.locName, dateLabel, dailyPlan, fullLocationPlan, hotelInfo, weather);
+          };
+          titleDiv.appendChild(suggestBtn);
+        }
 
         events.forEach(({ time, content }) => {
           const plainContent = app.getTextContent(content);
@@ -649,9 +654,7 @@ export function installItinerary(app) {
               hotelPill.onclick = (e) => {
                 e.stopPropagation();
                 let query = d.data.hotel;
-                if (d.data.locs && d.data.locs.size > 0) {
-                  query += ` ${Array.from(d.data.locs)[0]}`;
-                }
+                if (d.data.locs && d.data.locs.size > 0) query += ` ${Array.from(d.data.locs)[0]}`;
                 window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`, '_blank');
               };
               cell.appendChild(hotelPill);

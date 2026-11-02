@@ -73,6 +73,7 @@ export function installWeather(app) {
     const start = app.parseSmartDate(card.dataset.start);
     const end = app.parseSmartDate(card.dataset.end);
     if (!loc || !start) return;
+    const skipMap = card.dataset.bookend === 'true';
 
     const source = app.visualCrossingKey ? 'vc' : 'om';
     const cacheKey = `${app.WEATHER_CACHE_PREFIX}${source}_${encodeURIComponent(loc)}_${start}_${end || ''}`;
@@ -82,9 +83,7 @@ export function installWeather(app) {
       if (cachedJson) {
         const cached = JSON.parse(cachedJson);
         if (Date.now() - cached.timestamp < app.WEATHER_CACHE_EXPIRY) {
-          if (cached.coords) {
-            app.addMapLocation(loc, cached.coords.lat, cached.coords.lon);
-          }
+          if (cached.coords) app.pinForecastLocation(loc, cached.coords.lat, cached.coords.lon, skipMap);
           return cached.data;
         }
       }
@@ -106,7 +105,7 @@ export function installWeather(app) {
           let coords = null;
           if (data.latitude && data.longitude) {
             coords = { lat: data.latitude, lon: data.longitude };
-            app.addMapLocation(loc, data.latitude, data.longitude);
+            app.pinForecastLocation(loc, data.latitude, data.longitude, skipMap);
           }
           const timezone = data.timezone;
           const days = (data.days || []).map(d => ({
@@ -129,8 +128,7 @@ export function installWeather(app) {
     const coords = await app.getCoordinates(loc);
     if (!coords) return;
 
-    // Update map immediately with coordinates
-    app.addMapLocation(loc, coords.lat, coords.lon);
+    app.pinForecastLocation(loc, coords.lat, coords.lon, skipMap);
 
     // Generate dates to fetch
     const daysToFetch = [];

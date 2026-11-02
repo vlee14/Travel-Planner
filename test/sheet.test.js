@@ -60,6 +60,49 @@ describe('sheet', () => {
     assert.equal(app.parseSheetRows([]), null);
   });
 
+  test('treats matching one-day bookends as the trip home', () => {
+    const app = createApp();
+    assert.deepEqual(
+      [...app.bookendColumns([
+        { location: 'NYC', id: 1 },
+        { location: 'Kyoto', id: 2 },
+        { location: 'Kyoto', id: 3 },
+        { location: 'nyc', id: 4 }
+      ])],
+      [1, 4]
+    );
+    assert.equal(app.bookendColumns([
+      { location: 'NYC', id: 1 },
+      { location: 'NYC', id: 2 },
+      { location: 'Kyoto', id: 3 },
+      { location: 'NYC', id: 4 }
+    ]).size, 0);
+    assert.equal(app.bookendColumns([
+      { location: 'NYC', id: 1 },
+      { location: 'Kyoto', id: 2 },
+      { location: 'Osaka', id: 3 }
+    ]).size, 0);
+    assert.equal(app.bookendColumns([
+      { location: 'Kyoto', id: 1 },
+      { location: 'Kyoto', id: 2 }
+    ]).size, 0);
+
+    app.parsed = {
+      locations: ['Time', 'NYC', 'Kyoto', 'NYC', 'NYC', 'Osaka', 'NYC'],
+      dates: ['', 'Nov 1', 'Nov 2', 'Nov 3', 'Nov 4', 'Nov 5', 'Nov 6']
+    };
+    assert.deepEqual(app.parsedDestinations(), ['Kyoto', 'NYC', 'Osaka']);
+    assert.deepEqual(
+      app.destinationNames([
+        { location: 'NYC' },
+        { location: 'Kyoto' },
+        { location: 'Osaka' },
+        { location: 'NYC' }
+      ]),
+      ['Kyoto', 'Osaka']
+    );
+  });
+
   test('lines a day column up with its location and date', () => {
     const app = createApp();
     const model = app.parseSheetRows([

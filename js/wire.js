@@ -946,18 +946,8 @@ document.getElementById('btn-builder-cancel')?.addEventListener('click', app.can
 
 app.tabs.forEach(tab => {
   tab.addEventListener('click', () => {
-    const id = tab.dataset.tab;
-    app.tabs.forEach(t => t.classList.remove('active'));
-    app.panels.forEach(p => {
-      p.classList.toggle('active', p.id === 'panel-' + id);
-    });
-    tab.classList.add('active');
     app.showError('');
-    if (id === 'build') app.ensureBuilder();
-    const heading = document.querySelector('.input-section h2');
-    if (heading) {
-      heading.textContent = id === 'build' && app.builderEditing ? 'Edit trip' : (id === 'build' ? 'Plan your adventure' : 'Import');
-    }
+    app.showInputTab(tab.dataset.tab);
   });
 });
 

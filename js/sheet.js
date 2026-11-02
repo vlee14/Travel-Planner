@@ -545,6 +545,62 @@ export function installSheet(app) {
     return grid;
   };
 
+  app.bookendColumns = function bookendColumns(entries) {
+    const runs = [];
+    (entries || []).forEach(entry => {
+      const loc = app.getTextContent(entry && entry.location || '').trim();
+      if (!loc || entry.id == null) return;
+      const key = loc.toLowerCase();
+      const prev = runs[runs.length - 1];
+      if (prev && prev.key === key) prev.ids.push(entry.id);
+      else runs.push({ key, ids: [entry.id] });
+    });
+    if (runs.length < 3) return new Set();
+    const first = runs[0];
+    const last = runs[runs.length - 1];
+    if (first.ids.length !== 1 || last.ids.length !== 1 || first.key !== last.key) return new Set();
+    return new Set([first.ids[0], last.ids[0]]);
+  };
+
+  app.destinationNames = function destinationNames(days) {
+    const entries = (days || []).map((day, index) => ({ location: day && day.location, id: index }));
+    const bookends = app.bookendColumns(entries);
+    const seen = new Set();
+    const out = [];
+    entries.forEach(entry => {
+      if (bookends.has(entry.id)) return;
+      const loc = app.getTextContent(entry.location || '').trim();
+      if (!loc) return;
+      const key = loc.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(loc);
+    });
+    return out;
+  };
+
+  app.parsedDestinations = function parsedDestinations() {
+    if (!app.parsed) return [];
+    const entries = [];
+    for (let i = 1; i < app.parsed.locations.length; i++) {
+      const location = app.getTextContent(app.parsed.locations[i] || '').trim();
+      const date = app.getTextContent(app.parsed.dates[i] || '').trim();
+      if (!location || !date) continue;
+      entries.push({ location, id: i });
+    }
+    const bookends = app.bookendColumns(entries);
+    const seen = new Set();
+    const out = [];
+    entries.forEach(entry => {
+      if (bookends.has(entry.id)) return;
+      const key = entry.location.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(entry.location);
+    });
+    return out;
+  };
+
   app.findDayColumn = function findDayColumn(location, dateLabel) {
     if (!app.parsed) return -1;
     for (let i = 1; i < app.parsed.locations.length; i++) {

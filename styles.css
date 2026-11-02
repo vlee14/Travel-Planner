@@ -205,6 +205,7 @@ h1 {
 .tabs .tab {
   flex: 1;
   text-align: center;
+  padding-inline: 0.35rem;
 }
 
 .tab,
@@ -1699,7 +1700,6 @@ textarea::placeholder {
 }
 
 #google-auth-container,
-#recent-docs-container,
 #btn-clear-doc {
   display: none;
 }
@@ -1759,7 +1759,14 @@ textarea::placeholder {
 }
 
 .recent-docs {
-  margin-top: 1.35rem;
+  margin-top: 0.15rem;
+}
+
+.recent-empty {
+  margin: 0.15rem 0.1rem 0;
+  font-size: var(--text-subhead);
+  color: var(--text-muted);
+  line-height: 1.4;
 }
 
 .recent-docs-head {

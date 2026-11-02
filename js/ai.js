@@ -33,6 +33,8 @@ export function installAi(app) {
     }
   };
 
+  app.AI_TRIP_MAX_DAYS = 30;
+
   app.currentAiKey = function currentAiKey() {
     return ((app.aiKeys && app.aiKeys[app.aiProvider]) || '').trim();
   };
@@ -196,7 +198,7 @@ export function installAi(app) {
     throw new Error(label + ' returned an empty reply.');
   };
 
-  app.completeGoogle = async function completeGoogle(key, model, history, maxTokens, temperature) {
+  app.completeGoogle = async function completeGoogle(key, model, history, maxTokens, temperature, timeoutMs) {
     const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent';
     const send = thinking => {
       const generationConfig = {
@@ -216,7 +218,7 @@ export function installAi(app) {
           'x-goog-api-key': key
         },
         body: JSON.stringify({ contents: history, generationConfig })
-      }, key, 120000);
+      }, key, timeoutMs || 120000);
     };
     try {
       return app.geminiReplyText(await send(true));
@@ -228,7 +230,7 @@ export function installAi(app) {
     }
   };
 
-  app.completeGrok = async function completeGrok(key, model, history, maxTokens, temperature) {
+  app.completeGrok = async function completeGrok(key, model, history, maxTokens, temperature, timeoutMs) {
     const send = function(useSearch) {
       const body = {
         model,
@@ -245,7 +247,7 @@ export function installAi(app) {
           Authorization: 'Bearer ' + key
         },
         body: JSON.stringify(body)
-      }, key, 120000);
+      }, key, timeoutMs || 120000);
     };
     try {
       return app.chatReplyText(await send(true), 'Grok');
@@ -266,7 +268,7 @@ export function installAi(app) {
     return headers;
   };
 
-  app.completeOpenRouter = function completeOpenRouter(key, model, history, maxTokens, temperature) {
+  app.completeOpenRouter = function completeOpenRouter(key, model, history, maxTokens, temperature, timeoutMs) {
     return app.requestAi('OpenRouter', 'https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -280,18 +282,18 @@ export function installAi(app) {
         stream: false,
         max_tokens: maxTokens
       })
-    }, key, 120000).then(data => app.chatReplyText(data, 'OpenRouter'));
+    }, key, timeoutMs || 120000).then(data => app.chatReplyText(data, 'OpenRouter'));
   };
 
-  app.completeAi = function completeAi(history, maxTokens, temperature) {
+  app.completeAi = function completeAi(history, maxTokens, temperature, timeoutMs) {
     const provider = app.aiProvider;
     const key = app.currentAiKey();
     const meta = app.AI_PROVIDERS[provider];
     if (!key) throw new Error(meta ? meta.missing : 'Please set an API key in Settings first.');
     const model = app.currentAiModel();
-    if (provider === 'google') return app.completeGoogle(key, model, history, maxTokens, temperature);
-    if (provider === 'grok') return app.completeGrok(key, model, history, maxTokens, temperature);
-    return app.completeOpenRouter(key, model, history, maxTokens, temperature);
+    if (provider === 'google') return app.completeGoogle(key, model, history, maxTokens, temperature, timeoutMs);
+    if (provider === 'grok') return app.completeGrok(key, model, history, maxTokens, temperature, timeoutMs);
+    return app.completeOpenRouter(key, model, history, maxTokens, temperature, timeoutMs);
   };
 
   app.listGoogleModels = async function listGoogleModels(key) {
@@ -606,7 +608,7 @@ export function installAi(app) {
 
   app.getChecklistCacheKey = function getChecklistCacheKey(type, count) {
     if (!app.parsed) return null;
-    const locs = [...new Set(app.parsed.locations.slice(1).filter(l => l && l.trim()))].join(', ');
+    const locs = app.parsedDestinations().join(', ');
     const validDates = app.parsed.dates.slice(1).filter(d => d && d.trim());
     const start = validDates.length > 0 ? validDates[0] : '';
     return `${app.AI_CACHE_PREFIX}${type}_${encodeURIComponent(locs)}_${start}_${count}`;
@@ -626,7 +628,7 @@ export function installAi(app) {
 
     app.packingContent.innerHTML = '<p>Generating checklist... <span class="ai-message loading">✨</span></p>';
 
-    const locs = app.parsed ? [...new Set(app.parsed.locations.slice(1).filter(l => l && l.trim()))].join(', ') : '';
+    const locs = app.parsed ? app.parsedDestinations().join(', ') : '';
     const validDates = app.parsed ? app.parsed.dates.slice(1).filter(d => d && d.trim()) : [];
     const start = validDates.length > 0 ? validDates[0] : '';
     const end = validDates.length > 0 ? validDates[validDates.length - 1] : '';
@@ -642,9 +644,11 @@ export function installAi(app) {
       const weatherContext = weatherSummaries.join('; ');
       const allContent = app.parsed ? app.parsed.rows.map(r => r.cells.join(' ')).join(' ').substring(0, 3000) : '';
 
-      prompt = `Act as a travel expert. Create a comprehensive packing checklist for ${count} person(s) for a trip to ${locs}.\nDates: ${start} to ${end}.\n\nContext:\n- Weather Forecast: ${weatherContext || 'Not available'}\n- Activities overview: ${allContent}\n\nFormat the response as a Markdown checklist categorized by Essentials, Clothing, Toiletries, Electronics, and Misc. Include quantity suggestions based on the trip duration.`;
+      const where = locs ? `a trip to ${locs}` : 'this trip';
+      prompt = `Act as a travel expert. Create a comprehensive packing checklist for ${count} person(s) for ${where}.\nDates: ${start} to ${end}.\n\nContext:\n- Weather Forecast: ${weatherContext || 'Not available'}\n- Activities overview: ${allContent}\n\nFormat the response as a Markdown checklist categorized by Essentials, Clothing, Toiletries, Electronics, and Misc. Include quantity suggestions based on the trip duration.`;
     } else {
-      prompt = `Act as a travel expert. Create a checklist of essential and useful mobile apps to download for a trip to ${locs}.\nInclude categories like Navigation, Transport, Language, Finance/Payment, and Local Guides. Explain briefly why each app is useful for this specific destination.\nFormat as a Markdown checklist.`;
+      const where = locs ? `a trip to ${locs}` : 'this trip';
+      prompt = `Act as a travel expert. Create a checklist of essential and useful mobile apps to download for ${where}.\nInclude categories like Navigation, Transport, Language, Finance/Payment, and Local Guides. Explain briefly why each app is useful for this specific destination.\nFormat as a Markdown checklist.`;
     }
 
     app.currentAiCacheKey = app.getChecklistCacheKey(app.currentChecklistType, count);
@@ -883,7 +887,7 @@ export function installAi(app) {
     return parsed;
   };
 
-  app.completeAiJson = async function completeAiJson(prompt, maxTokens) {
+  app.completeAiJson = async function completeAiJson(prompt, maxTokens, timeoutMs) {
     let lastError = null;
     let lastText = '';
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -896,7 +900,7 @@ export function installAi(app) {
         });
       }
       try {
-        lastText = await app.completeAi(history, maxTokens, 0.3);
+        lastText = await app.completeAi(history, maxTokens, 0.3, timeoutMs);
         return app.extractAiJson(lastText);
       } catch (err) {
         lastError = err;
@@ -984,8 +988,17 @@ export function installAi(app) {
     };
   };
 
+  app.tripOutputTokens = function tripOutputTokens(span) {
+    return Math.min(16384, Math.max(4800, Math.ceil(span * (4800 / 14))));
+  };
+
+  app.aiTripLengthMessage = function aiTripLengthMessage() {
+    return 'Up to ' + app.AI_TRIP_MAX_DAYS + ' days at a time. Shorten the dates, or dream up the extra days one at a time.';
+  };
+
   app.requestGeneratedTrip = async function requestGeneratedTrip(brief) {
-    const payload = await app.completeAiJson(app.tripPrompt(brief), 4800);
+    const span = app.daysBetweenYmd(brief.start, brief.end) + 1;
+    const payload = await app.completeAiJson(app.tripPrompt(brief), app.tripOutputTokens(span), 180000);
     return app.generatedTripDays(payload, brief.start, brief.end, brief.where, brief.pace);
   };
 
@@ -1002,8 +1015,9 @@ export function installAi(app) {
   };
 
   app.otherDaysContext = function otherDaysContext(days, skipIndex) {
+    const bookends = app.bookendColumns((days || []).map((day, index) => ({ location: day.location, id: index })));
     return (days || []).map((day, index) => {
-      if (index === skipIndex) return '';
+      if (index === skipIndex || bookends.has(index)) return '';
       const acts = (day.activities || []).map(act => (act.content || '').trim()).filter(Boolean);
       if (!day.location && !acts.length && !(day.notes || '').trim()) return '';
       return (day.date || 'undated') + ' ' + (day.location || 'unknown') + ': ' + (acts.join('; ') || 'no activities yet');
@@ -1047,8 +1061,8 @@ export function installAi(app) {
       return;
     }
     const span = app.daysBetweenYmd(start, end) + 1;
-    if (span > 14) {
-      app.setAiStatus('ai-trip-status', 'Up to 14 days at a time. Shorten the dates, or dream up the extra days one at a time.', true);
+    if (span > app.AI_TRIP_MAX_DAYS) {
+      app.setAiStatus('ai-trip-status', app.aiTripLengthMessage(), true);
       return;
     }
     if (!app.aiPlanReady('ai-trip-status')) return;
@@ -1095,6 +1109,11 @@ export function installAi(app) {
     if (!where) {
       app.setAiStatus('ai-day-status', 'Add a location for this day.', true);
       whereInput.focus();
+      return;
+    }
+    const bookends = app.bookendColumns(days.map((item, i) => ({ location: item.location, id: i })));
+    if (bookends.has(index) && where.toLowerCase() === (day.location || '').trim().toLowerCase()) {
+      app.setAiStatus('ai-day-status', 'Departure and return days stay out of day ideas.', true);
       return;
     }
     if (!date) {

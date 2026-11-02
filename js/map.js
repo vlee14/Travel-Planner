@@ -28,6 +28,11 @@ export function installMap(app) {
     if (app.mapRouteBtn) app.mapRouteBtn.style.display = 'none';
   };
 
+  app.pinForecastLocation = function pinForecastLocation(name, lat, lon, skip) {
+    if (skip) return;
+    app.addMapLocation(name, lat, lon);
+  };
+
   app.addMapLocation = function addMapLocation(name, lat, lon) {
     if (!app.map) return;
 
