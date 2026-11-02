@@ -3,7 +3,7 @@ export function installBuilder(app) {
   app.blankDay = function blankDay(partial = {}) {
     const activities = partial.activities && partial.activities.length
       ? partial.activities.map(a => ({ time: a.time || '', content: a.content || '' }))
-      : [{ time: '09:00', content: '' }];
+      : [{ time: '', content: '' }];
     return {
       date: partial.date || app.todayYmd(),
       location: partial.location || '',
@@ -98,20 +98,16 @@ export function installBuilder(app) {
     };
   };
 
-  app.confirmDiscardDays = function confirmDiscardDays(lost) {
+  app.askConfirm = function askConfirm(titleText, copyText, okText) {
     const modal = document.getElementById('builder-confirm-modal');
     const title = document.getElementById('builder-confirm-title');
     const copy = document.getElementById('builder-confirm-copy');
     const okBtn = document.getElementById('builder-confirm-ok');
     const cancelBtn = document.getElementById('builder-confirm-cancel');
     if (!modal || !title || !copy || !okBtn || !cancelBtn) return Promise.resolve(false);
-    const names = lost.slice(0, 3).map(day => {
-      const when = day.date ? app.formatTripDate(day.date) : 'An undated day';
-      return day.location ? `${when} (${day.location})` : when;
-    });
-    const extra = lost.length > 3 ? `, and ${lost.length - 3} more` : '';
-    title.textContent = lost.length === 1 ? 'Remove this day?' : `Remove ${lost.length} days?`;
-    copy.textContent = `${names.join(', ')}${extra} ${lost.length === 1 ? 'has' : 'have'} plans that won't fit the new dates.`;
+    title.textContent = titleText;
+    copy.textContent = copyText;
+    okBtn.textContent = okText || 'Remove';
     modal.classList.add('open');
     modal.setAttribute('aria-hidden', 'false');
     okBtn.focus();
@@ -123,6 +119,7 @@ export function installBuilder(app) {
         document.removeEventListener('keydown', onKey);
         okBtn.onclick = null;
         cancelBtn.onclick = null;
+        okBtn.textContent = 'Remove';
         resolve(value);
       };
       const onBackdrop = (event) => {
@@ -138,11 +135,29 @@ export function installBuilder(app) {
     });
   };
 
+  app.confirmDiscardDays = function confirmDiscardDays(lost) {
+    const names = lost.slice(0, 3).map(day => {
+      const when = day.date ? app.formatTripDate(day.date) : 'An undated day';
+      return day.location ? `${when} (${day.location})` : when;
+    });
+    const extra = lost.length > 3 ? `, and ${lost.length - 3} more` : '';
+    const titleText = lost.length === 1 ? 'Remove this day?' : `Remove ${lost.length} days?`;
+    const copyText = `${names.join(', ')}${extra} ${lost.length === 1 ? 'has' : 'have'} plans that won't fit the new dates.`;
+    return app.askConfirm(titleText, copyText, 'Remove');
+  };
+
   app.tripRangeBounds = function tripRangeBounds() {
     const pick = app.rangePick;
     if (pick && pick.anchor) {
       const end = pick.hover || pick.anchor;
       return pick.anchor <= end ? { start: pick.anchor, end } : { start: end, end: pick.anchor };
+    }
+    if (pick && pick.mode === 'ai') {
+      const btn = document.getElementById('ai-trip-range-btn');
+      const start = btn?.dataset.start || '';
+      const end = btn?.dataset.end || start;
+      if (start && end) return { start, end };
+      return null;
     }
     return app.tripDateSpan(app.collectBuilderDays());
   };
@@ -150,11 +165,38 @@ export function installBuilder(app) {
   app.renderTripRange = function renderTripRange() {
     const grid = document.getElementById('schedule-grid');
     const label = document.getElementById('schedule-month');
+    const pick = app.rangePick;
+    if (!grid || !label || !pick) return;
+    const zoom = pick.zoom || 'day';
+    grid.classList.toggle('is-months', zoom === 'month');
+    grid.classList.toggle('is-years', zoom === 'year');
+    const weekdays = document.querySelector('.schedule-weekdays');
+    if (weekdays) weekdays.hidden = zoom !== 'day';
+    if (zoom === 'month') app.renderTripMonths();
+    else if (zoom === 'year') app.renderTripYears();
+    else app.renderTripDays();
+    const anchor = pick.target && pick.target.isConnected
+      ? pick.target
+      : document.getElementById('schedule-range-btn');
+    if (anchor) app.placeSchedulePopover(anchor);
+  };
+
+  app.renderTripDays = function renderTripDays() {
+    const grid = document.getElementById('schedule-grid');
+    const label = document.getElementById('schedule-month');
     const hint = document.getElementById('schedule-hint');
     const pick = app.rangePick;
     if (!grid || !label || !pick) return;
     label.textContent = new Date(pick.year, pick.month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    if (hint) hint.textContent = pick.anchor ? 'Choose an end date' : 'Choose a start date';
+    label.disabled = false;
+    label.setAttribute('aria-label', `Choose month and year, ${label.textContent}`);
+    app.labelTripRangeNav('Previous month', 'Next month');
+    if (hint) {
+      hint.hidden = false;
+      hint.textContent = pick.mode === 'day'
+        ? 'Choose a date'
+        : (pick.anchor ? 'Choose an end date' : 'Choose a start date');
+    }
     grid.innerHTML = '';
     const firstDow = new Date(pick.year, pick.month, 1).getDay();
     const daysInMonth = new Date(pick.year, pick.month + 1, 0).getDate();
@@ -179,13 +221,112 @@ export function installBuilder(app) {
     app.paintTripRangeSelection();
   };
 
+  app.renderTripMonths = function renderTripMonths() {
+    const grid = document.getElementById('schedule-grid');
+    const label = document.getElementById('schedule-month');
+    const hint = document.getElementById('schedule-hint');
+    const pick = app.rangePick;
+    if (!grid || !label || !pick) return;
+    label.textContent = String(pick.year);
+    label.disabled = false;
+    label.setAttribute('aria-label', `Choose year, ${pick.year}`);
+    app.labelTripRangeNav('Previous year', 'Next year');
+    if (hint) {
+      hint.hidden = false;
+      hint.textContent = 'Choose a month';
+    }
+    grid.innerHTML = '';
+    const today = new Date();
+    for (let month = 0; month < 12; month++) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'range-month';
+      btn.dataset.month = String(month);
+      btn.textContent = new Date(pick.year, month, 1).toLocaleDateString('en-US', { month: 'short' });
+      btn.setAttribute('aria-label', new Date(pick.year, month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }));
+      if (month === pick.month) btn.classList.add('is-selected');
+      if (pick.year === today.getFullYear() && month === today.getMonth()) btn.classList.add('is-today');
+      btn.setAttribute('aria-pressed', month === pick.month ? 'true' : 'false');
+      grid.appendChild(btn);
+    }
+  };
+
+  app.renderTripYears = function renderTripYears() {
+    const grid = document.getElementById('schedule-grid');
+    const label = document.getElementById('schedule-month');
+    const hint = document.getElementById('schedule-hint');
+    const pick = app.rangePick;
+    if (!grid || !label || !pick) return;
+    if (pick.yearPage == null) pick.yearPage = Math.floor(pick.year / 12) * 12;
+    const start = pick.yearPage;
+    label.textContent = `${start} – ${start + 11}`;
+    label.disabled = true;
+    label.setAttribute('aria-label', `Years ${start} to ${start + 11}`);
+    app.labelTripRangeNav('Previous years', 'Next years');
+    if (hint) {
+      hint.hidden = false;
+      hint.textContent = 'Choose a year';
+    }
+    grid.innerHTML = '';
+    const todayYear = new Date().getFullYear();
+    for (let offset = 0; offset < 12; offset++) {
+      const year = start + offset;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'range-year';
+      btn.dataset.year = String(year);
+      btn.textContent = String(year);
+      if (year === pick.year) btn.classList.add('is-selected');
+      if (year === todayYear) btn.classList.add('is-today');
+      btn.setAttribute('aria-pressed', year === pick.year ? 'true' : 'false');
+      grid.appendChild(btn);
+    }
+  };
+
+  app.labelTripRangeNav = function labelTripRangeNav(previous, next) {
+    document.getElementById('schedule-prev')?.setAttribute('aria-label', previous);
+    document.getElementById('schedule-next')?.setAttribute('aria-label', next);
+  };
+
+  app.zoomTripRange = function zoomTripRange() {
+    const pick = app.rangePick;
+    if (!pick || pick.zoom === 'year') return;
+    if (pick.zoom === 'month') {
+      pick.zoom = 'year';
+      pick.yearPage = Math.floor(pick.year / 12) * 12;
+    } else {
+      pick.zoom = 'month';
+    }
+    app.renderTripRange();
+  };
+
+  app.pickTripMonth = function pickTripMonth(month) {
+    const pick = app.rangePick;
+    if (!pick || month < 0 || month > 11) return;
+    pick.month = month;
+    pick.zoom = 'day';
+    app.renderTripRange();
+  };
+
+  app.pickTripYear = function pickTripYear(year) {
+    const pick = app.rangePick;
+    if (!pick || !year) return;
+    pick.year = year;
+    pick.zoom = 'month';
+    app.renderTripRange();
+  };
+
   app.paintTripRangeSelection = function paintTripRangeSelection() {
-    const bounds = app.tripRangeBounds();
+    const pick = app.rangePick;
+    const selected = pick && pick.mode === 'day' ? pick.anchor : '';
+    const bounds = pick && pick.mode === 'day' ? null : app.tripRangeBounds();
     document.querySelectorAll('#schedule-grid [data-ymd]').forEach(btn => {
       const ymd = btn.dataset.ymd;
-      const inRange = !!(bounds && ymd >= bounds.start && ymd <= bounds.end);
-      const edge = !!(bounds && (ymd === bounds.start || ymd === bounds.end));
+      const edge = selected
+        ? ymd === selected
+        : !!(bounds && (ymd === bounds.start || ymd === bounds.end));
       const multi = !!(bounds && bounds.start !== bounds.end);
+      const inRange = !!(bounds && ymd >= bounds.start && ymd <= bounds.end);
       btn.classList.toggle('in-range', !!(inRange && multi));
       btn.classList.toggle('is-edge', edge);
       btn.classList.toggle('is-start', !!(multi && ymd === bounds.start));
@@ -194,18 +335,314 @@ export function installBuilder(app) {
     });
   };
 
+  app.placeSchedulePopover = function placeSchedulePopover(anchor) {
+    const pop = document.getElementById('schedule-popover');
+    const card = anchor?.closest('.ai-build-card, #builder-schedule') || document.getElementById('builder-schedule');
+    if (!pop || !anchor || !card) return;
+    const cardBox = card.getBoundingClientRect();
+    const anchorBox = anchor.getBoundingClientRect();
+    const margin = 12;
+    const viewportCap = window.innerWidth - margin * 2;
+    const cardCap = Math.max(160, cardBox.width - 8);
+    const compact = cardCap > 26 * 16;
+    const width = compact ? Math.min(22 * 16, cardCap, viewportCap) : Math.min(cardCap, viewportCap);
+    let left = compact ? anchorBox.left : cardBox.left + 4;
+    left = Math.max(margin, Math.min(left, window.innerWidth - margin - width));
+    pop.style.width = `${width}px`;
+    pop.style.left = `${left}px`;
+    pop.style.maxHeight = `${window.innerHeight - margin * 2}px`;
+    const height = pop.getBoundingClientRect().height;
+    let top = anchorBox.bottom + 8;
+    if (top + height > window.innerHeight - margin) {
+      const above = anchorBox.top - 8 - height;
+      top = above > margin ? above : Math.max(margin, window.innerHeight - margin - height);
+    }
+    pop.style.top = `${top}px`;
+  };
+
+  app.timeParts = function timeParts(hhmm) {
+    const match = /^(\d{2}):(\d{2})$/.exec(hhmm || '');
+    if (!match) return null;
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (hour > 23 || minute > 59) return null;
+    return {
+      hour,
+      minute,
+      period: hour >= 12 ? 'pm' : 'am',
+      hour12: hour % 12 || 12
+    };
+  };
+
+  app.composeTime = function composeTime(hour12, minute, period) {
+    let hour = hour12 % 12;
+    if (period === 'pm') hour += 12;
+    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  };
+
+  app.syncTimeTrigger = function syncTimeTrigger(btn, hhmm) {
+    if (!btn) return;
+    btn.value = hhmm || '';
+    btn.textContent = hhmm ? app.formatTimeLabel(hhmm) : 'Add time';
+    btn.classList.toggle('is-empty', !hhmm);
+  };
+
+  app.ensureTimePopover = function ensureTimePopover() {
+    const hours = document.getElementById('time-hours');
+    const minutes = document.getElementById('time-minutes');
+    const period = document.getElementById('time-period');
+    if (!hours || !minutes || !period || hours.childElementCount) return;
+    app.fillTimeWheel(hours, [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(hour => ({
+      value: String(hour),
+      label: String(hour)
+    })), 3);
+    app.fillTimeWheel(minutes, Array.from({ length: 60 }, (_, minute) => ({
+      value: String(minute),
+      label: String(minute).padStart(2, '0')
+    })), 3);
+    app.fillTimeWheel(period, [
+      { value: 'am', label: 'AM' },
+      { value: 'pm', label: 'PM' }
+    ], 1);
+  };
+
+  app.fillTimeWheel = function fillTimeWheel(wheel, values, copies) {
+    wheel.dataset.count = String(values.length);
+    wheel.dataset.copies = String(copies);
+    wheel.replaceChildren();
+    for (let copy = 0; copy < copies; copy++) {
+      values.forEach(item => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'time-wheel-item';
+        btn.dataset.value = item.value;
+        btn.textContent = item.label;
+        btn.tabIndex = -1;
+        btn.setAttribute('aria-label', item.label);
+        btn.addEventListener('click', () => {
+          const itemH = btn.offsetHeight || 1;
+          const index = [...wheel.children].indexOf(btn);
+          wheel.dataset.user = '1';
+          wheel.scrollTo({ top: index * itemH, behavior: 'smooth' });
+        });
+        wheel.appendChild(btn);
+      });
+    }
+    wheel.addEventListener('pointerdown', () => { wheel.dataset.user = '1'; });
+    wheel.addEventListener('wheel', () => { wheel.dataset.user = '1'; }, { passive: true });
+    wheel.addEventListener('scroll', () => app.onTimeWheelScroll(wheel), { passive: true });
+    wheel.addEventListener('scrollend', () => app.settleTimeWheel(wheel));
+  };
+
+  app.wheelMetrics = function wheelMetrics(wheel) {
+    const item = wheel?.firstElementChild;
+    if (!item) return null;
+    const itemH = item.offsetHeight || 1;
+    const count = Number(wheel.dataset.count) || 1;
+    const copies = Number(wheel.dataset.copies) || 1;
+    let index = Math.round(wheel.scrollTop / itemH);
+    const max = count * copies - 1;
+    if (index < 0) index = 0;
+    if (index > max) index = max;
+    return { itemH, count, copies, index, local: ((index % count) + count) % count };
+  };
+
+  app.wheelValue = function wheelValue(wheel) {
+    const metrics = app.wheelMetrics(wheel);
+    if (!metrics) return '';
+    return wheel.children[metrics.local]?.dataset.value || '';
+  };
+
+  app.scrollTimeWheel = function scrollTimeWheel(wheel, value) {
+    if (!wheel?.firstElementChild) return;
+    const count = Number(wheel.dataset.count) || 1;
+    const copies = Number(wheel.dataset.copies) || 1;
+    const local = [...wheel.children].slice(0, count).findIndex(el => el.dataset.value === value);
+    if (local < 0) return;
+    const itemH = wheel.firstElementChild.offsetHeight || 1;
+    const index = Math.floor(copies / 2) * count + local;
+    app.timeWheelLock = (app.timeWheelLock || 0) + 1;
+    wheel.scrollTop = index * itemH;
+    app.timeWheelLock--;
+    clearTimeout(wheel._settle);
+  };
+
+  app.frameTimeWheels = function frameTimeWheels(hhmm) {
+    const hours = document.getElementById('time-hours');
+    const item = hours?.firstElementChild;
+    if (!item || item.offsetHeight < 1) {
+      const pick = app.timePick;
+      if (!pick) return;
+      pick.frameTries = (pick.frameTries || 0) + 1;
+      if (pick.frameTries > 6) return;
+      requestAnimationFrame(() => {
+        if (app.timePick === pick) app.frameTimeWheels(hhmm);
+      });
+      return;
+    }
+    const parts = app.timeParts(hhmm) || { hour12: 9, minute: 0, period: 'am' };
+    app.scrollTimeWheel(hours, String(parts.hour12));
+    app.scrollTimeWheel(document.getElementById('time-minutes'), String(parts.minute));
+    app.scrollTimeWheel(document.getElementById('time-period'), parts.period);
+  };
+
+  app.onTimeWheelScroll = function onTimeWheelScroll(wheel) {
+    if (app.timeWheelLock || wheel.dataset.user !== '1') return;
+    clearTimeout(wheel._settle);
+    wheel._settle = setTimeout(() => app.settleTimeWheel(wheel), 90);
+  };
+
+  app.settleTimeWheel = function settleTimeWheel(wheel) {
+    if (!wheel || app.timeWheelLock) return;
+    const metrics = app.wheelMetrics(wheel);
+    if (!metrics) return;
+    const middle = Math.floor(metrics.copies / 2) * metrics.count + metrics.local;
+    if (metrics.copies > 1 && metrics.index !== middle) {
+      app.timeWheelLock = (app.timeWheelLock || 0) + 1;
+      wheel.scrollTop = middle * metrics.itemH;
+      app.timeWheelLock--;
+    }
+    if (wheel.dataset.user !== '1') return;
+    wheel.dataset.user = '';
+    app.commitTimeWheels();
+  };
+
+  app.commitTimeWheels = function commitTimeWheels() {
+    const target = app.timePick?.target;
+    if (!target) return;
+    const hour = Number(app.wheelValue(document.getElementById('time-hours')));
+    const minute = Number(app.wheelValue(document.getElementById('time-minutes')));
+    const period = app.wheelValue(document.getElementById('time-period'));
+    if (!hour || Number.isNaN(minute) || (period !== 'am' && period !== 'pm')) return;
+    app.syncTimeTrigger(target, app.composeTime(hour, minute, period));
+  };
+
+  app.nudgeTimeWheel = function nudgeTimeWheel(key) {
+    const ids = ['time-hours', 'time-minutes', 'time-period'];
+    if (!app.timePick) return;
+    if (app.timePick.column == null) app.timePick.column = 0;
+    if (key === 'ArrowLeft') {
+      app.timePick.column = (app.timePick.column + ids.length - 1) % ids.length;
+      return;
+    }
+    if (key === 'ArrowRight') {
+      app.timePick.column = (app.timePick.column + 1) % ids.length;
+      return;
+    }
+    const wheel = document.getElementById(ids[app.timePick.column]);
+    const metrics = app.wheelMetrics(wheel);
+    if (!metrics) return;
+    const delta = key === 'ArrowDown' ? 1 : -1;
+    let next = metrics.local + delta;
+    next = metrics.copies === 1
+      ? Math.max(0, Math.min(metrics.count - 1, next))
+      : (next + metrics.count) % metrics.count;
+    const index = Math.floor(metrics.copies / 2) * metrics.count + next;
+    wheel.dataset.user = '1';
+    wheel.scrollTo({ top: index * metrics.itemH, behavior: 'smooth' });
+  };
+
+  app.placeTimePopover = function placeTimePopover(anchor) {
+    const pop = document.getElementById('time-popover');
+    if (!pop || !anchor) return;
+    const box = anchor.getBoundingClientRect();
+    const margin = 12;
+    const card = anchor.closest('.ai-build-card, #builder-schedule') || document.getElementById('builder-schedule');
+    const cardBox = card?.getBoundingClientRect();
+    const cardCap = cardBox && cardBox.width > 160 ? cardBox.width - 8 : window.innerWidth - margin * 2;
+    const compact = cardCap > 26 * 16;
+    const font = parseFloat(getComputedStyle(document.documentElement).fontSize) || 17;
+    const width = Math.round(compact
+      ? Math.min(16.5 * font, cardCap, window.innerWidth - margin * 2)
+      : Math.min(cardCap, window.innerWidth - margin * 2));
+    pop.style.width = `${width}px`;
+    const height = pop.offsetHeight;
+    let left = compact ? box.left : (cardBox ? cardBox.left + 4 : box.left);
+    left = Math.max(margin, Math.min(left, window.innerWidth - margin - width));
+    let top = box.bottom + 8;
+    if (top + height > window.innerHeight - margin) {
+      const above = box.top - 8 - height;
+      top = above > margin ? above : Math.max(margin, window.innerHeight - margin - height);
+    }
+    pop.style.left = `${left}px`;
+    pop.style.top = `${top}px`;
+  };
+
+  app.openTimePicker = function openTimePicker(target) {
+    const pop = document.getElementById('time-popover');
+    if (!pop || !target) return;
+    app.closeTripRange();
+    app.ensureTimePopover();
+    document.querySelectorAll('.time-trigger[aria-expanded="true"]').forEach(el => {
+      if (el !== target) el.setAttribute('aria-expanded', 'false');
+    });
+    app.timePick = { target, column: 0, frameTries: 0 };
+    pop.hidden = false;
+    target.setAttribute('aria-expanded', 'true');
+    app.placeTimePopover(target);
+    app.frameTimeWheels(target.value);
+    pop.focus({ preventScroll: true });
+  };
+
+  app.closeTimePicker = function closeTimePicker() {
+    const pop = document.getElementById('time-popover');
+    if (pop) pop.hidden = true;
+    document.querySelectorAll('.time-trigger[aria-expanded="true"]').forEach(el => {
+      el.setAttribute('aria-expanded', 'false');
+    });
+    app.timePick = null;
+  };
+
+  app.restoreSchedulePopover = function restoreSchedulePopover() {
+    const pop = document.getElementById('schedule-popover');
+    const home = document.getElementById('builder-schedule');
+    if (!pop) return;
+    pop.classList.remove('is-overlay');
+    if (home && pop.parentElement !== home) home.appendChild(pop);
+  };
+
+  app.liftSchedulePopover = function liftSchedulePopover() {
+    const pop = document.getElementById('schedule-popover');
+    if (!pop) return;
+    if (pop.parentElement !== document.body) document.body.appendChild(pop);
+    pop.classList.add('is-overlay');
+  };
+
   app.openTripRange = function openTripRange() {
     const pop = document.getElementById('schedule-popover');
     const btn = document.getElementById('schedule-range-btn');
     const card = document.getElementById('builder-schedule');
     if (!pop || !btn) return;
+    app.restoreSchedulePopover();
+    app.closeTimePicker();
     const span = app.tripDateSpan(app.collectBuilderDays());
     const ymd = (span && span.start) || app.todayYmd();
     const [year, month] = ymd.split('-').map(Number);
-    app.rangePick = { anchor: '', hover: '', year, month: month - 1 };
+    app.rangePick = { mode: 'range', anchor: '', hover: '', year, month: month - 1, zoom: 'day', target: null };
+    document.querySelectorAll('.day-date-btn[aria-expanded="true"]').forEach(el => {
+      el.setAttribute('aria-expanded', 'false');
+    });
     pop.hidden = false;
     btn.setAttribute('aria-expanded', 'true');
     card?.classList.add('is-picking');
+    app.renderTripRange();
+  };
+
+  app.openDayDate = function openDayDate(btn) {
+    const pop = document.getElementById('schedule-popover');
+    if (!pop || !btn) return;
+    app.restoreSchedulePopover();
+    app.closeTimePicker();
+    const ymd = btn.value || app.todayYmd();
+    const [year, month] = ymd.split('-').map(Number);
+    document.querySelectorAll('.day-date-btn[aria-expanded="true"]').forEach(el => {
+      if (el !== btn) el.setAttribute('aria-expanded', 'false');
+    });
+    app.rangePick = { mode: 'day', anchor: btn.value || '', hover: '', year, month: month - 1, zoom: 'day', target: btn };
+    pop.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    document.getElementById('schedule-range-btn')?.setAttribute('aria-expanded', 'false');
+    document.getElementById('builder-schedule')?.classList.add('is-picking');
     app.renderTripRange();
   };
 
@@ -215,25 +652,69 @@ export function installBuilder(app) {
     const card = document.getElementById('builder-schedule');
     if (pop) pop.hidden = true;
     if (btn) btn.setAttribute('aria-expanded', 'false');
+    document.getElementById('ai-trip-range-btn')?.setAttribute('aria-expanded', 'false');
+    document.querySelectorAll('.day-date-btn[aria-expanded="true"]').forEach(el => {
+      el.setAttribute('aria-expanded', 'false');
+    });
     card?.classList.remove('is-picking');
+    app.restoreSchedulePopover();
     if (app.rangePick) {
+      app.rangePick.mode = '';
       app.rangePick.anchor = '';
       app.rangePick.hover = '';
+      app.rangePick.target = null;
     }
+  };
+
+  app.openAiTripRange = function openAiTripRange() {
+    const pop = document.getElementById('schedule-popover');
+    const btn = document.getElementById('ai-trip-range-btn');
+    if (!pop || !btn) return;
+    const ymd = btn.dataset.start || app.todayYmd();
+    const [year, month] = ymd.split('-').map(Number);
+    document.querySelectorAll('.day-date-btn[aria-expanded="true"]').forEach(el => {
+      el.setAttribute('aria-expanded', 'false');
+    });
+    document.getElementById('schedule-range-btn')?.setAttribute('aria-expanded', 'false');
+    document.getElementById('builder-schedule')?.classList.remove('is-picking');
+    app.rangePick = { mode: 'ai', anchor: '', hover: '', year, month: month - 1, zoom: 'day', target: btn };
+    app.liftSchedulePopover();
+    pop.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    app.renderTripRange();
   };
 
   app.shiftTripRangeMonth = function shiftTripRangeMonth(delta) {
     const pick = app.rangePick;
     if (!pick) return;
-    const next = new Date(pick.year, pick.month + delta, 1);
-    pick.year = next.getFullYear();
-    pick.month = next.getMonth();
+    if (pick.zoom === 'year') {
+      pick.yearPage = (pick.yearPage ?? Math.floor(pick.year / 12) * 12) + delta * 12;
+    } else if (pick.zoom === 'month') {
+      pick.year += delta;
+    } else {
+      const next = new Date(pick.year, pick.month + delta, 1);
+      pick.year = next.getFullYear();
+      pick.month = next.getMonth();
+    }
     app.renderTripRange();
   };
 
   app.pickTripRangeDay = async function pickTripRangeDay(ymd) {
     const pick = app.rangePick;
     if (!pick || !ymd) return;
+    if (pick.mode === 'day') {
+      const field = pick.target;
+      if (field && field.isConnected) {
+        field.value = ymd;
+        field.textContent = app.formatTripDate(ymd);
+        field.classList.remove('is-empty');
+        const when = field.closest('.builder-day')?.querySelector('.day-when');
+        if (when) when.textContent = app.formatTripDate(ymd);
+        app.paintSchedule();
+      }
+      app.closeTripRange();
+      return;
+    }
     if (!pick.anchor) {
       pick.anchor = ymd;
       pick.hover = '';
@@ -244,6 +725,18 @@ export function installBuilder(app) {
     let end = ymd;
     if (end < start) { const swap = start; start = end; end = swap; }
     const length = app.daysBetweenYmd(start, end) + 1;
+    if (pick.mode === 'ai') {
+      if (length > 14) {
+        if (app.setAiStatus) app.setAiStatus('ai-trip-status', 'Up to 14 days at a time. Shorten the dates, or dream up the extra days one at a time.', true);
+        const hint = document.getElementById('schedule-hint');
+        if (hint) hint.textContent = 'Up to 14 days';
+        return;
+      }
+      app.setAiTripRange(start, end);
+      if (app.setAiStatus) app.setAiStatus('ai-trip-status', '');
+      app.closeTripRange();
+      return;
+    }
     if (length > 366) {
       app.showError('Choose a range of a year or less.');
       return;
@@ -379,7 +872,7 @@ export function installBuilder(app) {
     if (note) note.hidden = !linked;
     if (heading) {
       const active = document.querySelector('.tab.active')?.dataset.tab;
-      heading.textContent = app.builderEditing ? 'Edit trip' : (active === 'build' ? 'Build a trip' : 'Import');
+      heading.textContent = app.builderEditing ? 'Edit trip' : (active === 'build' ? 'Plan your adventure' : 'Import');
     }
   };
 
@@ -407,8 +900,10 @@ export function installBuilder(app) {
   };
 
   app.renderBuilderDays = function renderBuilderDays(days) {
+    app.closeTimePicker();
     const daysEl = document.getElementById('builder-days');
     if (!daysEl) return;
+    if (app.rangePick?.mode === 'day') app.closeTripRange();
     daysEl.innerHTML = '';
     daysEl.appendChild(app.dayInsertButton(-1, 'Insert a day at the start'));
     days.forEach((day, index) => {
@@ -435,11 +930,18 @@ export function installBuilder(app) {
       title.append(kicker, when);
       const tools = document.createElement('div');
       tools.className = 'builder-day-tools';
+      const aiBtn = document.createElement('button');
+      aiBtn.type = 'button';
+      aiBtn.className = 'ai-choice';
+      aiBtn.dataset.action = 'ai-day';
+      aiBtn.title = 'Dream up this day';
+      aiBtn.setAttribute('aria-label', 'Dream up this day');
+      aiBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.6 4.8L18.5 9.4 13.6 11 12 15.8 10.4 11 5.5 9.4l4.9-1.6L12 3z"></path><path d="M18 14l.6 1.8 1.8.6-1.8.6L18 19l-.6-1.8-1.8-.6 1.8-.6L18 14z"></path></svg>';
       const removeBtn = app.miniButton('', 'remove-day', false, true);
       removeBtn.classList.add('day-delete');
       removeBtn.setAttribute('aria-label', 'Remove day');
       removeBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
-      tools.append(removeBtn);
+      tools.append(aiBtn, removeBtn);
       head.append(handle, title, tools);
       app.bindDayDrag(card, handle);
 
@@ -453,13 +955,15 @@ export function installBuilder(app) {
 
       const activities = document.createElement('div');
       activities.className = 'builder-activities';
-      const list = day.activities && day.activities.length ? day.activities : [{ time: '', content: '' }];
-      list.forEach((act, actIndex) => activities.appendChild(app.activityRow(act, actIndex, list.length === 1)));
+      const list = app.withTrailingActivity(day.activities);
+      list.forEach((act, actIndex) => {
+        const ghost = actIndex === list.length - 1 && !app.activityHasText(act.content);
+        activities.appendChild(app.activityRow(act, actIndex, ghost));
+      });
 
-      const addAct = app.miniButton('Add activity', 'add-activity');
       const notesField = app.builderField('Notes', 'notes', 'textarea', day.notes || '', 'Optional', true);
 
-      card.append(head, grid, activities, addAct, notesField);
+      card.append(head, grid, activities, notesField);
       daysEl.appendChild(card);
       const atEnd = index === days.length - 1;
       daysEl.appendChild(app.dayInsertButton(
@@ -556,7 +1060,28 @@ export function installBuilder(app) {
     return btn;
   };
 
+  app.builderDateField = function builderDateField(labelText, field, value) {
+    const wrap = document.createElement('label');
+    wrap.className = 'builder-field';
+    const label = document.createElement('span');
+    label.className = 'builder-label';
+    label.textContent = labelText;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'date-trigger day-date-btn';
+    btn.dataset.field = field;
+    btn.value = value || '';
+    btn.textContent = value ? app.formatTripDate(value) : 'Add date';
+    btn.classList.toggle('is-empty', !value);
+    btn.setAttribute('aria-haspopup', 'dialog');
+    btn.setAttribute('aria-expanded', 'false');
+    btn.setAttribute('aria-controls', 'schedule-popover');
+    wrap.append(label, btn);
+    return wrap;
+  };
+
   app.builderField = function builderField(labelText, field, type, value, placeholder, span) {
+    if (type === 'date') return app.builderDateField(labelText, field, value);
     const wrap = document.createElement('label');
     wrap.className = span ? 'builder-field builder-span' : 'builder-field';
     const label = document.createElement('span');
@@ -597,6 +1122,52 @@ export function installBuilder(app) {
     el.style.height = `${el.scrollHeight}px`;
   };
 
+  app.activityHasText = function activityHasText(value) {
+    return !!String(value || '').trim();
+  };
+
+  app.withTrailingActivity = function withTrailingActivity(activities) {
+    const list = activities && activities.length
+      ? activities.map(act => ({ ...act }))
+      : [{ time: '', content: '' }];
+    while (
+      list.length > 1 &&
+      !app.activityHasText(list[list.length - 1].content) &&
+      !app.activityHasText(list[list.length - 2].content)
+    ) {
+      list.pop();
+    }
+    if (app.activityHasText(list[list.length - 1].content)) list.push({ time: '', content: '' });
+    return list;
+  };
+
+  app.syncTrailingActivity = function syncTrailingActivity(card) {
+    const list = card.querySelector('.builder-activities');
+    if (!list) return;
+    const textOf = (row) => row.querySelector('[data-field="content"]')?.value || '';
+    const rows = () => [...list.children].filter(el => el.classList.contains('builder-activity'));
+    let current = rows();
+    while (current.length > 1) {
+      const tail = current[current.length - 1];
+      const prev = current[current.length - 2];
+      if (app.activityHasText(textOf(tail)) || app.activityHasText(textOf(prev))) break;
+      if (tail.contains(document.activeElement)) break;
+      tail.remove();
+      current.pop();
+    }
+    const tail = current[current.length - 1];
+    if (tail && app.activityHasText(textOf(tail))) {
+      list.appendChild(app.activityRow({ time: '', content: '' }, current.length, true));
+      current.push(list.lastElementChild);
+    }
+    current.forEach((row, index) => {
+      const btn = row.querySelector('[data-action="remove-activity"]');
+      if (!btn) return;
+      btn.dataset.index = String(index);
+      btn.disabled = index === current.length - 1 && !app.activityHasText(textOf(row));
+    });
+  };
+
   app.activityRow = function activityRow(act, actIndex, onlyOne) {
     const row = document.createElement('div');
     row.className = 'builder-activity';
@@ -610,15 +1181,21 @@ export function installBuilder(app) {
     content.addEventListener('input', () => {
       app.fitActivityField(content);
       syncLinkState();
+      const card = row.closest('.builder-day');
+      if (card) app.syncTrailingActivity(card);
     });
 
     const tools = document.createElement('div');
     tools.className = 'activity-tools';
-    const time = document.createElement('input');
-    time.type = 'time';
+    const time = document.createElement('button');
+    time.type = 'button';
+    time.className = 'time-trigger';
     time.dataset.field = 'time';
-    time.value = act.time || '';
     time.setAttribute('aria-label', 'Activity time');
+    time.setAttribute('aria-haspopup', 'dialog');
+    time.setAttribute('aria-expanded', 'false');
+    time.setAttribute('aria-controls', 'time-popover');
+    app.syncTimeTrigger(time, act.time || '');
     if (act.sourceRow != null && act.sourceRow !== '') row.dataset.sourceRow = String(act.sourceRow);
 
     const boxId = `activity-linkbox-${++activityFieldSerial}`;
@@ -718,6 +1295,8 @@ export function installBuilder(app) {
       app.fitActivityField(content);
       content.focus();
       content.setSelectionRange(caret, caret);
+      const card = row.closest('.builder-day');
+      if (card) app.syncTrailingActivity(card);
     }
 
     linkBtn.addEventListener('pointerdown', () => {
@@ -972,6 +1551,154 @@ export function installBuilder(app) {
     } finally {
       app.setBuilderBusy(false);
     }
+  };
+
+  app.setAiPanel = function setAiPanel(which) {
+    if (app.rangePick?.mode === 'ai') app.closeTripRange();
+    const tripOpen = which === 'trip';
+    const dayOpen = which === 'day';
+    const tripForm = document.getElementById('ai-trip-form');
+    const dayForm = document.getElementById('ai-day-form');
+    const tripBtn = document.getElementById('btn-ai-trip');
+    const modal = document.getElementById('ai-build-modal');
+    const title = document.getElementById('ai-build-title');
+    const open = tripOpen || dayOpen;
+    if (!open) app.aiOpenDay = null;
+    if (tripForm) tripForm.hidden = !tripOpen;
+    if (dayForm) dayForm.hidden = !dayOpen;
+    if (modal) {
+      modal.classList.toggle('open', open);
+      modal.setAttribute('aria-hidden', open ? 'false' : 'true');
+    }
+    if (title) title.textContent = dayOpen ? 'Dream up this day' : 'Dream up a trip';
+    if (tripBtn) {
+      tripBtn.classList.toggle('is-open', tripOpen);
+      tripBtn.setAttribute('aria-expanded', tripOpen ? 'true' : 'false');
+    }
+    document.querySelectorAll('[data-action="ai-day"]').forEach(btn => {
+      const card = btn.closest('.builder-day');
+      const on = dayOpen && card && Number(card.dataset.index) === app.aiOpenDay;
+      btn.classList.toggle('is-open', on);
+      btn.setAttribute('aria-expanded', on ? 'true' : 'false');
+    });
+  };
+
+  app.paintAiTripRange = function paintAiTripRange() {
+    const btn = document.getElementById('ai-trip-range-btn');
+    if (!btn) return;
+    const start = btn.dataset.start || '';
+    const end = btn.dataset.end || '';
+    let label = 'Add dates';
+    if (start && end && start !== end) label = `${app.formatTripDate(start)} – ${app.formatTripDate(end)}`;
+    else if (start) label = app.formatTripDate(start);
+    const text = document.getElementById('ai-trip-range');
+    if (text) text.textContent = label;
+    btn.classList.toggle('is-empty', !start);
+    btn.setAttribute('aria-label', start ? `Change dates, ${label}` : 'Set trip dates');
+  };
+
+  app.setAiTripRange = function setAiTripRange(start, end) {
+    const btn = document.getElementById('ai-trip-range-btn');
+    if (!btn) return;
+    if (start) btn.dataset.start = start;
+    else delete btn.dataset.start;
+    if (end) btn.dataset.end = end;
+    else delete btn.dataset.end;
+    app.paintAiTripRange();
+  };
+
+  app.prepareAiTripForm = function prepareAiTripForm() {
+    const where = document.getElementById('ai-trip-where');
+    const btn = document.getElementById('ai-trip-range-btn');
+    const days = app.collectBuilderDays();
+    const named = [...new Set(days.map(day => day.location).filter(Boolean))];
+    if (where && !where.value.trim() && named.length) where.value = named.join(', ');
+    const span = (days.length > 1 || named.length) ? app.tripDateSpan(days) : null;
+    if (btn && !btn.dataset.start && span) app.setAiTripRange(span.start, span.end);
+    else app.paintAiTripRange();
+    if (app.setAiStatus) app.setAiStatus('ai-trip-status', '');
+  };
+
+  app.prepareAiDayForm = function prepareAiDayForm(index) {
+    const where = document.getElementById('ai-day-where');
+    const dateEl = document.getElementById('ai-day-date');
+    const day = Number.isInteger(index) ? app.collectBuilderDays()[index] : null;
+    const when = day && day.date ? app.formatTripDate(day.date) : '';
+    if (dateEl) {
+      dateEl.textContent = when || 'No date';
+      dateEl.classList.toggle('is-empty', !when);
+    }
+    if (where) where.value = day ? (day.location || '') : '';
+    if (app.setAiStatus) app.setAiStatus('ai-day-status', '');
+  };
+
+  app.openAiTripForm = function openAiTripForm() {
+    if (app.aiBuildBusy || !app.currentAiKey()) return;
+    const form = document.getElementById('ai-trip-form');
+    if (form && !form.hidden) {
+      app.setAiPanel('');
+      return;
+    }
+    app.ensureBuilder();
+    app.closeTripRange();
+    app.aiOpenDay = null;
+    app.setAiPanel('trip');
+    app.prepareAiTripForm();
+    document.getElementById('ai-trip-where')?.focus();
+  };
+
+  app.openAiDayForm = function openAiDayForm(index) {
+    if (app.aiBuildBusy || !app.currentAiKey() || !Number.isInteger(index)) return;
+    const form = document.getElementById('ai-day-form');
+    if (form && !form.hidden && app.aiOpenDay === index) {
+      app.setAiPanel('');
+      return;
+    }
+    app.ensureBuilder();
+    app.closeTripRange();
+    app.aiOpenDay = index;
+    app.setAiPanel('day');
+    app.prepareAiDayForm(index);
+    const where = document.getElementById('ai-day-where');
+    if (where && !where.value.trim()) where.focus();
+    else document.getElementById('ai-day-prompt')?.focus();
+  };
+
+  app.applyGeneratedTrip = function applyGeneratedTrip(plan) {
+    const current = app.collectBuilderDays();
+    plan.days.forEach(day => {
+      const prev = current.find(item => item.date === day.date && item.sourceCol != null);
+      if (prev) day.sourceCol = prev.sourceCol;
+    });
+    const titleInput = document.getElementById('builder-title');
+    if (titleInput && plan.title && !titleInput.value.trim()) titleInput.value = plan.title;
+    app.commitBuilderDays(plan.days);
+  };
+
+  app.applyGeneratedDay = function applyGeneratedDay(index, planned) {
+    const days = app.collectBuilderDays();
+    let target = index;
+    if (target == null || target < 0 || target >= days.length) {
+      if (days.length === 1 && !app.dayHasContent(days[0])) target = 0;
+      else target = -1;
+    }
+    if (days.some((day, i) => i !== target && day.date && day.date === planned.date)) {
+      throw new Error('Another day already uses that date.');
+    }
+    if (target < 0) {
+      const at = days.findIndex(day => day.date && planned.date && day.date > planned.date);
+      if (at === -1) days.push(planned);
+      else days.splice(at, 0, planned);
+      target = days.indexOf(planned);
+    } else {
+      const prev = days[target];
+      if (prev.sourceCol != null) planned.sourceCol = prev.sourceCol;
+      if (!planned.hotel && prev.hotel) planned.hotel = prev.hotel;
+      if (!planned.notes && prev.notes) planned.notes = prev.notes;
+      days[target] = planned;
+    }
+    app.commitBuilderDays(days);
+    return target;
   };
 
   app.cancelEditor = function cancelEditor() {

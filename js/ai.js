@@ -48,7 +48,18 @@ export function installAi(app) {
   };
 
   app.syncAiAvailability = function syncAiAvailability() {
-    document.body.classList.toggle('has-api-key', Boolean(app.currentAiKey()));
+    const ready = Boolean(app.currentAiKey());
+    document.body.classList.toggle('has-api-key', ready);
+    if (ready) return;
+    if (app.setAiPanel) app.setAiPanel('');
+    if (app.aiModal) app.aiModal.style.display = 'none';
+    const packing = document.getElementById('packing-btn');
+    if (packing && packing.classList.contains('active')) {
+      const fallback = window.innerWidth < 768
+        ? document.querySelector('.view-btn[data-view="list"]')
+        : document.querySelector('.view-btn[data-view="calendar"]');
+      fallback?.click();
+    }
   };
 
   app.geminiChatModelName = function geminiChatModelName(model) {
@@ -185,11 +196,11 @@ export function installAi(app) {
     throw new Error(label + ' returned an empty reply.');
   };
 
-  app.completeGoogle = async function completeGoogle(key, model, history, maxTokens) {
+  app.completeGoogle = async function completeGoogle(key, model, history, maxTokens, temperature) {
     const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent';
     const send = thinking => {
       const generationConfig = {
-        temperature: 0.7,
+        temperature: typeof temperature === 'number' ? temperature : 0.7,
         topK: 1,
         topP: 1,
         maxOutputTokens: maxTokens
@@ -217,12 +228,12 @@ export function installAi(app) {
     }
   };
 
-  app.completeGrok = async function completeGrok(key, model, history, maxTokens) {
+  app.completeGrok = async function completeGrok(key, model, history, maxTokens, temperature) {
     const send = function(useSearch) {
       const body = {
         model,
         messages: app.historyToChatMessages(history),
-        temperature: 0.7,
+        temperature: typeof temperature === 'number' ? temperature : 0.7,
         stream: false,
         max_completion_tokens: maxTokens
       };
@@ -255,7 +266,7 @@ export function installAi(app) {
     return headers;
   };
 
-  app.completeOpenRouter = function completeOpenRouter(key, model, history, maxTokens) {
+  app.completeOpenRouter = function completeOpenRouter(key, model, history, maxTokens, temperature) {
     return app.requestAi('OpenRouter', 'https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -265,22 +276,22 @@ export function installAi(app) {
       body: JSON.stringify({
         model,
         messages: app.historyToChatMessages(history),
-        temperature: 0.7,
+        temperature: typeof temperature === 'number' ? temperature : 0.7,
         stream: false,
         max_tokens: maxTokens
       })
     }, key, 120000).then(data => app.chatReplyText(data, 'OpenRouter'));
   };
 
-  app.completeAi = function completeAi(history, maxTokens) {
+  app.completeAi = function completeAi(history, maxTokens, temperature) {
     const provider = app.aiProvider;
     const key = app.currentAiKey();
     const meta = app.AI_PROVIDERS[provider];
     if (!key) throw new Error(meta ? meta.missing : 'Please set an API key in Settings first.');
     const model = app.currentAiModel();
-    if (provider === 'google') return app.completeGoogle(key, model, history, maxTokens);
-    if (provider === 'grok') return app.completeGrok(key, model, history, maxTokens);
-    return app.completeOpenRouter(key, model, history, maxTokens);
+    if (provider === 'google') return app.completeGoogle(key, model, history, maxTokens, temperature);
+    if (provider === 'grok') return app.completeGrok(key, model, history, maxTokens, temperature);
+    return app.completeOpenRouter(key, model, history, maxTokens, temperature);
   };
 
   app.listGoogleModels = async function listGoogleModels(key) {
@@ -416,10 +427,14 @@ export function installAi(app) {
       }
       const actions = document.createElement('div');
       actions.className = 'suggestion-actions';
-      const time = document.createElement('input');
-      time.type = 'time';
-      time.value = app.timeToInputValue(block.time);
+      const time = document.createElement('button');
+      time.type = 'button';
+      time.className = 'time-trigger';
       time.setAttribute('aria-label', `Time for ${block.title}`);
+      time.setAttribute('aria-haspopup', 'dialog');
+      time.setAttribute('aria-expanded', 'false');
+      time.setAttribute('aria-controls', 'time-popover');
+      app.syncTimeTrigger(time, app.timeToInputValue(block.time));
       const add = document.createElement('button');
       add.type = 'button';
       add.className = 'btn btn-primary suggestion-add';
@@ -738,6 +753,387 @@ export function installAi(app) {
       app.setModelOptions(options, selected);
     } catch (e) {
       console.error('Failed to list models', e);
+    }
+  };
+
+  app.setAiStatus = function setAiStatus(id, message, isError) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = message || '';
+    el.classList.toggle('is-error', !!(message && isError));
+  };
+
+  app.setAiBuildBusy = function setAiBuildBusy(mode) {
+    app.aiBuildBusy = mode || '';
+    const tripGo = document.getElementById('btn-ai-trip-go');
+    const dayGo = document.getElementById('btn-ai-day-go');
+    const tripChoice = document.getElementById('btn-ai-trip');
+    const dayChoice = document.getElementById('btn-ai-day');
+    if (tripGo) {
+      tripGo.disabled = !!mode;
+      tripGo.textContent = mode === 'trip' ? 'Dreaming…' : 'Dream up a trip';
+    }
+    if (dayGo) {
+      dayGo.disabled = !!mode;
+      dayGo.textContent = mode === 'day' ? 'Dreaming…' : 'Dream up this day';
+    }
+    if (tripChoice) tripChoice.disabled = !!mode;
+    if (dayChoice) dayChoice.disabled = !!mode;
+  };
+
+  app.selectedPace = function selectedPace(groupId) {
+    const active = document.querySelector('#' + groupId + ' .ai-pace-btn.active');
+    return (active && active.dataset.pace) || 'balanced';
+  };
+
+  app.cleanPlanText = function cleanPlanText(value, max) {
+    return String(value == null ? '' : value)
+      .replace(/[\u0000-\u001F]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, max);
+  };
+
+  app.cleanPlanNotes = function cleanPlanNotes(value) {
+    return String(value == null ? '' : value)
+      .replace(/\r/g, '')
+      .split('\n')
+      .map(line => line.replace(/[\u0000-\u001F]/g, ' ').replace(/[ \t]+/g, ' ').trim())
+      .filter(Boolean)
+      .slice(0, 4)
+      .join('\n')
+      .slice(0, 500);
+  };
+
+  app.paceGuide = function paceGuide(pace) {
+    if (pace === 'relaxed') return '3 or 4 activities, with long gaps for meals and wandering';
+    if (pace === 'packed') return '6 or 7 activities, with realistic time to travel between them';
+    return '4 or 5 activities, with time to eat and move between them';
+  };
+
+  app.planActivity = function planActivity(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const content = app.cleanPlanText(raw.content || raw.activity || raw.title || raw.name || raw.place || '', 180);
+    if (!content) return null;
+    return {
+      time: app.timeToInputValue(String(raw.time || raw.start || raw.startTime || '')),
+      content
+    };
+  };
+
+  app.stampTimes = function stampTimes(activities, pace) {
+    const step = pace === 'packed' ? 75 : pace === 'relaxed' ? 150 : 105;
+    let minutes = 9 * 60;
+    const stamped = activities.map(act => {
+      if (act.time) {
+        const known = app.timeToMinutes(act.time);
+        if (known + 30 > minutes) minutes = known + step;
+        return act;
+      }
+      const hour = Math.floor(minutes / 60);
+      const minute = minutes % 60;
+      const time = hour > 21 ? '' : String(hour).padStart(2, '0') + ':' + String(minute).padStart(2, '0');
+      minutes += step;
+      return time ? { time, content: act.content } : null;
+    }).filter(act => act && act.time && act.content);
+    stamped.sort((a, b) => app.timeToMinutes(a.time) - app.timeToMinutes(b.time));
+    return stamped;
+  };
+
+  app.planDay = function planDay(raw, date, pace) {
+    const source = raw && typeof raw === 'object' ? raw : {};
+    const seen = new Set();
+    const activities = [];
+    const list = Array.isArray(source.activities) ? source.activities.slice(0, 8) : [];
+    list.forEach(item => {
+      const act = typeof item === 'string'
+        ? { time: '', content: app.cleanPlanText(item, 180) }
+        : app.planActivity(item);
+      if (!act || !act.content) return;
+      const key = act.content.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      activities.push(act);
+    });
+    return {
+      date: date || '',
+      location: app.cleanPlanText(source.location || source.city || '', 80),
+      hotel: app.cleanPlanText(source.hotel || source.stay || '', 120),
+      activities: app.stampTimes(activities, pace),
+      notes: app.cleanPlanNotes(source.notes || source.note || '')
+    };
+  };
+
+  app.extractAiJson = function extractAiJson(text) {
+    let body = String(text || '').trim();
+    const fenced = body.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fenced) body = fenced[1].trim();
+    const start = body.indexOf('{');
+    const end = body.lastIndexOf('}');
+    if (start < 0 || end <= start) throw new Error('The model did not return a plan.');
+    let parsed;
+    try {
+      parsed = JSON.parse(body.slice(start, end + 1));
+    } catch (e) {
+      throw new Error('The model returned a plan that could not be read. Try again.');
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('The model did not return a plan.');
+    }
+    return parsed;
+  };
+
+  app.completeAiJson = async function completeAiJson(prompt, maxTokens) {
+    let lastError = null;
+    let lastText = '';
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const history = [{ role: 'user', parts: [{ text: prompt }] }];
+      if (attempt) {
+        history.push({ role: 'model', parts: [{ text: lastText.slice(0, 6000) }] });
+        history.push({
+          role: 'user',
+          parts: [{ text: 'That reply was not valid JSON. Reply again with only the JSON object and no markdown.' }]
+        });
+      }
+      try {
+        lastText = await app.completeAi(history, maxTokens, 0.3);
+        return app.extractAiJson(lastText);
+      } catch (err) {
+        lastError = err;
+        const unreadable = /could not be read|did not return a plan/i.test(err && err.message || '');
+        if (!unreadable || attempt === 1) throw err;
+      }
+    }
+    throw lastError || new Error('The model did not return a plan.');
+  };
+
+  app.tripPrompt = function tripPrompt(brief) {
+    const span = app.daysBetweenYmd(brief.start, brief.end) + 1;
+    const dates = [];
+    for (let i = 0; i < span; i++) dates.push(app.addDaysYmd(brief.start, i));
+    const interests = brief.interests ? brief.interests.slice(0, 800) : 'a well-rounded first visit';
+    return [
+      'You are planning a realistic trip. Reply with one JSON object and nothing else.',
+      'No markdown fences, no comments, and no trailing commas.',
+      'Schema: {"title":"short name","days":[{"date":"YYYY-MM-DD","location":"city or neighborhood","hotel":"area to stay or empty","activities":[{"time":"HH:MM","content":"specific place and what to do"}],"notes":"one practical tip or empty"}]}',
+      'Where: ' + brief.where,
+      'Pace: ' + brief.pace + '. ' + app.paceGuide(brief.pace) + '.',
+      'Interests: ' + interests,
+      'Include exactly these dates, in this order, one object each: ' + dates.join(', ') + '.',
+      'Use 24-hour HH:MM times. Leave gaps for meals and transit. Name specific places. Do not repeat an attraction on a later day.',
+      'Do not invent prices, confirmation numbers, or private addresses. hotel is a neighborhood or kind of stay, not a reservation.',
+      'Keep each activity under 140 characters.'
+    ].join('\n');
+  };
+
+  app.dayPrompt = function dayPrompt(brief) {
+    const wish = brief.wish ? brief.wish.slice(0, 800) : 'a satisfying day in this place';
+    const lines = [
+      'You are planning one day of a trip. Reply with one JSON object and nothing else.',
+      'No markdown fences, no comments, and no trailing commas.',
+      'Schema: {"location":"city or neighborhood","hotel":"area to stay or empty","activities":[{"time":"HH:MM","content":"specific place and what to do"}],"notes":"one practical tip or empty"}',
+      'Date: ' + brief.date,
+      'Location: ' + brief.location,
+      'Pace: ' + brief.pace + '. ' + app.paceGuide(brief.pace) + '.',
+      'What to include: ' + wish
+    ];
+    if (brief.context) lines.push('Other days already planned. Do not repeat these places:\n' + brief.context.slice(0, 2500));
+    else lines.push('No other days are planned yet.');
+    lines.push('Use 24-hour HH:MM times. Name specific places. Keep each activity under 140 characters.');
+    lines.push('Do not invent prices, confirmation numbers, or private addresses.');
+    return lines.join('\n');
+  };
+
+  app.generatedTripDays = function generatedTripDays(payload, start, end, where, pace) {
+    const body = Array.isArray(payload) ? { days: payload } : (payload || {});
+    const rawDays = Array.isArray(body.days) ? body.days : [];
+    const byDate = new Map();
+    rawDays.forEach(day => {
+      const label = day && (day.date || day.day) || '';
+      const ymd = app.normalizeYmd(label) || app.parseSmartDate(String(label || '')) || '';
+      if (ymd && ymd >= start && ymd <= end && !byDate.has(ymd)) byDate.set(ymd, day);
+    });
+    const span = app.daysBetweenYmd(start, end) + 1;
+    const sequential = byDate.size === 0;
+    const days = [];
+    for (let i = 0; i < span; i++) {
+      const date = app.addDaysYmd(start, i);
+      const raw = byDate.get(date) || (sequential ? rawDays[i] : null);
+      const day = app.planDay(raw, date, pace);
+      day.date = date;
+      days.push(day);
+    }
+    const fallback = app.cleanPlanText(String(where || '').split(/,|&|\band\b/i)[0], 80);
+    let last = fallback;
+    days.forEach(day => {
+      if (!day.location) day.location = last;
+      else last = day.location;
+    });
+    days.forEach(day => {
+      if (!day.activities.length) day.activities = [{ time: '09:00', content: '' }];
+    });
+    if (days.some(day => !day.location)) throw new Error('The model did not name the places. Try again.');
+    const thin = days.filter(day => !day.activities.some(act => act.content)).length;
+    const planned = days.some(day => day.activities.some(act => act.content));
+    if (!planned || thin > Math.max(1, Math.floor(span / 3))) {
+      throw new Error('The plan came back incomplete. Try again.');
+    }
+    return {
+      title: app.cleanPlanText(body.title || body.name || '', 80),
+      days
+    };
+  };
+
+  app.requestGeneratedTrip = async function requestGeneratedTrip(brief) {
+    const payload = await app.completeAiJson(app.tripPrompt(brief), 4800);
+    return app.generatedTripDays(payload, brief.start, brief.end, brief.where, brief.pace);
+  };
+
+  app.requestGeneratedDay = async function requestGeneratedDay(brief) {
+    const payload = await app.completeAiJson(app.dayPrompt(brief), 1600);
+    const raw = payload.activities
+      ? payload
+      : (payload.day || (Array.isArray(payload.days) ? payload.days[0] : payload));
+    const day = app.planDay(raw, brief.date, brief.pace);
+    day.date = brief.date;
+    day.location = app.cleanPlanText(brief.location, 80);
+    if (!day.activities.length) throw new Error('The model did not return any activities. Try again.');
+    return day;
+  };
+
+  app.otherDaysContext = function otherDaysContext(days, skipIndex) {
+    return (days || []).map((day, index) => {
+      if (index === skipIndex) return '';
+      const acts = (day.activities || []).map(act => (act.content || '').trim()).filter(Boolean);
+      if (!day.location && !acts.length && !(day.notes || '').trim()) return '';
+      return (day.date || 'undated') + ' ' + (day.location || 'unknown') + ': ' + (acts.join('; ') || 'no activities yet');
+    }).filter(Boolean).join('\n');
+  };
+
+  app.aiPlanReady = function aiPlanReady(statusId) {
+    if (!app.currentAiKey()) {
+      app.setAiStatus(statusId, app.aiKeyMessage(), true);
+      return false;
+    }
+    if (!navigator.onLine) {
+      app.setAiStatus(statusId, 'You are offline, so a plan cannot be generated right now.', true);
+      return false;
+    }
+    return true;
+  };
+
+  app.submitAiTrip = async function submitAiTrip() {
+    if (app.aiBuildBusy) return;
+    const whereInput = document.getElementById('ai-trip-where');
+    const where = (whereInput.value || '').trim();
+    const rangeBtn = document.getElementById('ai-trip-range-btn');
+    const start = app.normalizeYmd(rangeBtn?.dataset.start || '');
+    const end = app.normalizeYmd(rangeBtn?.dataset.end || '');
+    const interests = (document.getElementById('ai-trip-interests').value || '').trim();
+    const pace = app.selectedPace('ai-trip-pace');
+    app.setAiStatus('ai-trip-status', '');
+    if (!where) {
+      app.setAiStatus('ai-trip-status', 'Add a destination first.', true);
+      whereInput.focus();
+      return;
+    }
+    if (!start || !end) {
+      app.setAiStatus('ai-trip-status', 'Choose a start and end date.', true);
+      rangeBtn?.focus();
+      return;
+    }
+    if (end < start) {
+      app.setAiStatus('ai-trip-status', 'The end date has to be on or after the start.', true);
+      return;
+    }
+    const span = app.daysBetweenYmd(start, end) + 1;
+    if (span > 14) {
+      app.setAiStatus('ai-trip-status', 'Up to 14 days at a time. Shorten the dates, or dream up the extra days one at a time.', true);
+      return;
+    }
+    if (!app.aiPlanReady('ai-trip-status')) return;
+    const existing = app.collectBuilderDays().filter(app.dayHasContent);
+    if (existing.length) {
+      const ok = await app.askConfirm(
+        'Replace the current days?',
+        'Dreaming up a trip replaces the days already in the builder. You can still edit the result before saving.',
+        'Replace'
+      );
+      if (!ok) return;
+    }
+    app.setAiBuildBusy('trip');
+    app.setAiStatus('ai-trip-status', 'Dreaming up the trip…');
+    try {
+      const plan = await app.requestGeneratedTrip({ where: where.slice(0, 200), start, end, interests, pace });
+      app.applyGeneratedTrip(plan);
+      app.showError('');
+      app.setAiPanel('');
+      document.querySelector('#builder-days .builder-day')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } catch (err) {
+      console.error(err);
+      app.setAiStatus('ai-trip-status', (err && err.message) || 'Could not dream up the trip.', true);
+    } finally {
+      app.setAiBuildBusy('');
+    }
+  };
+
+  app.submitAiDay = async function submitAiDay() {
+    if (app.aiBuildBusy) return;
+    const whereInput = document.getElementById('ai-day-where');
+    const where = (whereInput.value || '').trim();
+    const wish = (document.getElementById('ai-day-prompt').value || '').trim();
+    const pace = app.selectedPace('ai-day-pace');
+    const index = app.aiOpenDay;
+    const days = app.collectBuilderDays();
+    const day = Number.isInteger(index) ? days[index] : null;
+    const date = app.normalizeYmd(day && day.date);
+    app.setAiStatus('ai-day-status', '');
+    if (!day) {
+      app.setAiStatus('ai-day-status', 'Open this from a day in the plan.', true);
+      return;
+    }
+    if (!where) {
+      app.setAiStatus('ai-day-status', 'Add a location for this day.', true);
+      whereInput.focus();
+      return;
+    }
+    if (!date) {
+      app.setAiStatus('ai-day-status', 'Set a date on this day first.', true);
+      return;
+    }
+    if (!app.aiPlanReady('ai-day-status')) return;
+    if (days.some((item, i) => i !== index && item.date === date)) {
+      app.setAiStatus('ai-day-status', 'Another day already uses that date.', true);
+      return;
+    }
+    if ((day.activities || []).some(act => (act.content || '').trim())) {
+      const when = day.date ? app.formatTripDate(day.date) : 'This day';
+      const ok = await app.askConfirm(
+        'Replace this day?',
+        when + ' already has activities. This replaces those activities.',
+        'Replace day'
+      );
+      if (!ok) return;
+    }
+    app.setAiBuildBusy('day');
+    app.setAiStatus('ai-day-status', 'Dreaming up this day…');
+    try {
+      const planned = await app.requestGeneratedDay({
+        date,
+        location: where,
+        pace,
+        wish,
+        context: app.otherDaysContext(app.collectBuilderDays(), index)
+      });
+      const at = app.applyGeneratedDay(index, planned);
+      app.showError('');
+      app.setAiPanel('');
+      document.querySelector('#builder-days .builder-day[data-index="' + at + '"]')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } catch (err) {
+      console.error(err);
+      app.setAiStatus('ai-day-status', (err && err.message) || 'Could not dream up this day.', true);
+    } finally {
+      app.setAiBuildBusy('');
     }
   };
 }

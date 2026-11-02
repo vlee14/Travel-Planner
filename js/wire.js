@@ -730,25 +730,15 @@ app.csvInput?.addEventListener('paste', (event) => {
   app.buildItineraryFromRows(rowsWithHtml, false, csvTextForUrl);
 });
 
-document.getElementById('builder-days')?.addEventListener('input', (e) => {
-  const input = e.target;
-  if (!(input instanceof HTMLInputElement) || input.dataset.field !== 'date') return;
-  const card = input.closest('.builder-day');
-  const title = card?.querySelector('.builder-day-title');
-  if (!card || !title) return;
-  const index = Number(card.dataset.index);
-  const when = title.querySelector('.day-when');
-  const kicker = title.querySelector('.day-kicker');
-  if (when && kicker) {
-    kicker.textContent = `Day ${index + 1}`;
-    when.textContent = input.value ? app.formatTripDate(input.value) : 'No date';
-  } else {
-    title.textContent = input.value ? `Day ${index + 1} · ${app.formatTripDate(input.value)}` : `Day ${index + 1}`;
-  }
-  app.paintSchedule();
-});
-
 document.getElementById('builder-days')?.addEventListener('click', async (e) => {
+  const dateBtn = e.target.closest('.day-date-btn');
+  if (dateBtn) {
+    e.preventDefault();
+    const pop = document.getElementById('schedule-popover');
+    if (pop && !pop.hidden && app.rangePick?.target === dateBtn) app.closeTripRange();
+    else app.openDayDate(dateBtn);
+    return;
+  }
   const insertBtn = e.target.closest('[data-insert-after]');
   if (insertBtn) {
     const after = Number(insertBtn.dataset.insertAfter);
@@ -763,6 +753,10 @@ document.getElementById('builder-days')?.addEventListener('click', async (e) => 
   if (!card) return;
   const index = Number(card.dataset.index);
   const action = btn.dataset.action;
+  if (action === 'ai-day') {
+    app.openAiDayForm(index);
+    return;
+  }
   const days = app.collectBuilderDays();
   if (action === 'remove-day') {
     if (index === days.length - 1) {
@@ -779,8 +773,6 @@ document.getElementById('builder-days')?.addEventListener('click', async (e) => 
   } else if (action === 'move-down' && index < days.length - 1) {
     const [item] = days.splice(index, 1);
     days.splice(index + 1, 0, item);
-  } else if (action === 'add-activity') {
-    days[index].activities.push({ time: '', content: '' });
   } else if (action === 'remove-activity') {
     days[index].activities.splice(Number(btn.dataset.index), 1);
     if (!days[index].activities.length) days[index].activities.push({ time: '', content: '' });
@@ -792,14 +784,36 @@ document.getElementById('builder-days')?.addEventListener('click', async (e) => 
 
 document.getElementById('schedule-range-btn')?.addEventListener('click', () => {
   const pop = document.getElementById('schedule-popover');
-  if (pop && !pop.hidden) app.closeTripRange();
+  if (pop && !pop.hidden && app.rangePick?.mode !== 'day') app.closeTripRange();
   else app.openTripRange();
+});
+
+document.getElementById('ai-trip-range-btn')?.addEventListener('click', () => {
+  const pop = document.getElementById('schedule-popover');
+  if (pop && !pop.hidden && app.rangePick?.mode === 'ai') app.closeTripRange();
+  else app.openAiTripRange();
 });
 
 document.getElementById('schedule-prev')?.addEventListener('click', () => app.shiftTripRangeMonth(-1));
 document.getElementById('schedule-next')?.addEventListener('click', () => app.shiftTripRangeMonth(1));
+document.getElementById('schedule-month')?.addEventListener('click', (event) => {
+  event.stopPropagation();
+  app.zoomTripRange();
+});
 
 document.getElementById('schedule-grid')?.addEventListener('click', (event) => {
+  const month = event.target.closest('[data-month]');
+  if (month && app.rangePick?.zoom === 'month') {
+    event.stopPropagation();
+    app.pickTripMonth(Number(month.dataset.month));
+    return;
+  }
+  const year = event.target.closest('[data-year]');
+  if (year && app.rangePick?.zoom === 'year') {
+    event.stopPropagation();
+    app.pickTripYear(Number(year.dataset.year));
+    return;
+  }
   const day = event.target.closest('[data-ymd]');
   if (!day) return;
   event.stopPropagation();
@@ -808,7 +822,7 @@ document.getElementById('schedule-grid')?.addEventListener('click', (event) => {
 
 document.getElementById('schedule-grid')?.addEventListener('pointerover', (event) => {
   const day = event.target.closest('[data-ymd]');
-  if (!day || !app.rangePick?.anchor || app.rangePick.hover === day.dataset.ymd) return;
+  if (!day || app.rangePick?.mode === 'day' || !app.rangePick?.anchor || app.rangePick.hover === day.dataset.ymd) return;
   app.rangePick.hover = day.dataset.ymd;
   app.paintTripRangeSelection();
   const hint = document.getElementById('schedule-hint');
@@ -816,18 +830,113 @@ document.getElementById('schedule-grid')?.addEventListener('pointerover', (event
 });
 
 document.addEventListener('click', (event) => {
+  const timePop = document.getElementById('time-popover');
+  const timeTrigger = event.target.closest('.time-trigger');
+  if (timeTrigger) {
+    if (timePop && !timePop.hidden && app.timePick?.target === timeTrigger) app.closeTimePicker();
+    else app.openTimePicker(timeTrigger);
+  } else if (timePop && !timePop.hidden && !timePop.contains(event.target)) {
+    app.closeTimePicker();
+  }
+
   const pop = document.getElementById('schedule-popover');
   const btn = document.getElementById('schedule-range-btn');
   if (!pop || pop.hidden) return;
-  if (pop.contains(event.target) || btn?.contains(event.target)) return;
+  if (pop.contains(event.target) || btn?.contains(event.target) || event.target.closest('.day-date-btn') || event.target.closest('#ai-trip-range-btn')) return;
   app.closeTripRange();
 });
 
 document.addEventListener('keydown', (event) => {
-  const pop = document.getElementById('schedule-popover');
+  const timePop = document.getElementById('time-popover');
   const confirm = document.getElementById('builder-confirm-modal');
-  if (event.key !== 'Escape' || !pop || pop.hidden || confirm?.classList.contains('open')) return;
+  if (event.key !== 'Escape' || confirm?.classList.contains('open')) return;
+  if (timePop && !timePop.hidden) {
+    app.closeTimePicker();
+    return;
+  }
+  const pop = document.getElementById('schedule-popover');
+  if (!pop || pop.hidden) return;
+  if (app.rangePick?.zoom === 'year') {
+    app.rangePick.zoom = 'month';
+    app.renderTripRange();
+    return;
+  }
+  if (app.rangePick?.zoom === 'month') {
+    app.rangePick.zoom = 'day';
+    app.renderTripRange();
+    return;
+  }
+  const keepDialog = app.rangePick?.mode === 'ai';
   app.closeTripRange();
+  if (keepDialog) event.stopImmediatePropagation();
+});
+
+function placeOpenSchedule() {
+  const pop = document.getElementById('schedule-popover');
+  if (!pop || pop.hidden || !app.rangePick) return;
+  const anchor = app.rangePick.target && app.rangePick.target.isConnected
+    ? app.rangePick.target
+    : document.getElementById('schedule-range-btn');
+  if (anchor) app.placeSchedulePopover(anchor);
+}
+
+function placeOpenTime() {
+  const pop = document.getElementById('time-popover');
+  if (!pop || pop.hidden || !app.timePick?.target) return;
+  app.placeTimePopover(app.timePick.target);
+}
+
+window.addEventListener('scroll', placeOpenSchedule, true);
+window.addEventListener('resize', placeOpenSchedule);
+window.addEventListener('scroll', placeOpenTime, true);
+window.addEventListener('resize', placeOpenTime);
+
+document.addEventListener('keydown', (event) => {
+  const pop = document.getElementById('time-popover');
+  if (!pop || pop.hidden) return;
+  if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+  if (event.target.closest('input, textarea')) return;
+  event.preventDefault();
+  app.nudgeTimeWheel(event.key);
+});
+
+document.getElementById('ai-build-close')?.addEventListener('click', () => {
+  if (!app.aiBuildBusy) app.setAiPanel('');
+});
+document.getElementById('ai-build-modal')?.addEventListener('click', (event) => {
+  if (event.target.id === 'ai-build-modal' && !app.aiBuildBusy) app.setAiPanel('');
+});
+document.addEventListener('keydown', (event) => {
+  const modal = document.getElementById('ai-build-modal');
+  const confirm = document.getElementById('builder-confirm-modal');
+  if (event.key !== 'Escape' || !modal?.classList.contains('open') || confirm?.classList.contains('open') || app.aiBuildBusy) return;
+  app.setAiPanel('');
+});
+
+document.getElementById('btn-ai-trip')?.addEventListener('click', () => app.openAiTripForm());
+document.getElementById('ai-trip-form')?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  app.submitAiTrip();
+});
+document.getElementById('ai-day-form')?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  app.submitAiDay();
+});
+document.getElementById('ai-trip-form')?.addEventListener('input', () => app.setAiStatus('ai-trip-status', ''));
+document.getElementById('ai-day-form')?.addEventListener('input', () => app.setAiStatus('ai-day-status', ''));
+document.querySelectorAll('.ai-pace').forEach(group => {
+  group.addEventListener('click', (event) => {
+    const paceBtn = event.target.closest('[data-pace]');
+    if (!paceBtn || !group.contains(paceBtn)) return;
+    group.querySelectorAll('[data-pace]').forEach(el => {
+      const on = el === paceBtn;
+      el.classList.toggle('active', on);
+      el.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+    const form = group.closest('form');
+    if (form?.id === 'ai-trip-form') app.setAiStatus('ai-trip-status', '');
+    if (form?.id === 'ai-day-form') app.setAiStatus('ai-day-status', '');
+  });
 });
 
 document.getElementById('btn-builder-apply')?.addEventListener('click', app.applyBuilder);
@@ -847,7 +956,7 @@ app.tabs.forEach(tab => {
     if (id === 'build') app.ensureBuilder();
     const heading = document.querySelector('.input-section h2');
     if (heading) {
-      heading.textContent = id === 'build' && app.builderEditing ? 'Edit trip' : (id === 'build' ? 'Build a trip' : 'Import');
+      heading.textContent = id === 'build' && app.builderEditing ? 'Edit trip' : (id === 'build' ? 'Plan your adventure' : 'Import');
     }
   });
 });

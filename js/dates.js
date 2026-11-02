@@ -142,4 +142,15 @@ export function installDates(app) {
     if (Number.isNaN(h)) return 0;
     return h * 60 + (Number.isNaN(m) ? 0 : m);
   };
+
+  app.normalizeYmd = function normalizeYmd(value) {
+    const match = String(value || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!match) return '';
+    const y = Number(match[1]);
+    const m = Number(match[2]);
+    const d = Number(match[3]);
+    const dt = new Date(y, m - 1, d);
+    if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return '';
+    return `${match[1]}-${match[2]}-${match[3]}`;
+  };
 }
