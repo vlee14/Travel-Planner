@@ -401,7 +401,31 @@
           <span class="builder-label">Interests</span>
           <textarea id="ai-trip-interests" rows="2" maxlength="800" placeholder="Food, temples, walking, one nice dinner"></textarea>
         </label>
-        <p class="ai-hint">Up to 30 days. You can edit the plan before saving.</p>
+        <div class="ai-constraints" id="ai-trip-constraints">
+          <p class="ai-constraints-label">Must include</p>
+          <div class="ai-constraint-group">
+            <div class="ai-constraint-head">
+              <span class="ai-constraint-title">Stays</span>
+              <button type="button" class="ai-constraint-add" data-constraint="hotel">Add stay</button>
+            </div>
+            <div id="ai-trip-hotels" class="ai-constraint-list" data-kind="hotel"></div>
+          </div>
+          <div class="ai-constraint-group">
+            <div class="ai-constraint-head">
+              <span class="ai-constraint-title">Booked</span>
+              <button type="button" class="ai-constraint-add" data-constraint="booked">Add booking</button>
+            </div>
+            <div id="ai-trip-booked" class="ai-constraint-list" data-kind="booked"></div>
+          </div>
+          <div class="ai-constraint-group">
+            <div class="ai-constraint-head">
+              <span class="ai-constraint-title">Want to see</span>
+              <button type="button" class="ai-constraint-add" data-constraint="wish">Add place</button>
+            </div>
+            <div id="ai-trip-wishlist" class="ai-constraint-list" data-kind="wish"></div>
+          </div>
+        </div>
+        <p class="ai-hint">Up to 30 days. Stays and bookings are locked in; you can still edit before saving.</p>
         <p id="ai-trip-status" class="ai-status" role="status"></p>
         <button type="submit" class="btn btn-primary" id="btn-ai-trip-go">Dream up a trip</button>
       </form>

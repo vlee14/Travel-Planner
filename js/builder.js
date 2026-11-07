@@ -152,8 +152,10 @@ export function installBuilder(app) {
       const end = pick.hover || pick.anchor;
       return pick.anchor <= end ? { start: pick.anchor, end } : { start: end, end: pick.anchor };
     }
-    if (pick && pick.mode === 'ai') {
-      const btn = document.getElementById('ai-trip-range-btn');
+    if (pick && (pick.mode === 'ai' || pick.mode === 'ai-stay')) {
+      const btn = pick.mode === 'ai-stay'
+        ? pick.target
+        : document.getElementById('ai-trip-range-btn');
       const start = btn?.dataset.start || '';
       const end = btn?.dataset.end || start;
       if (start && end) return { start, end };
@@ -631,18 +633,24 @@ export function installBuilder(app) {
   app.openDayDate = function openDayDate(btn) {
     const pop = document.getElementById('schedule-popover');
     if (!pop || !btn) return;
-    app.restoreSchedulePopover();
     app.closeTimePicker();
+    const inAiModal = !!btn.closest('#ai-build-modal');
+    if (inAiModal) app.liftSchedulePopover();
+    else app.restoreSchedulePopover();
     const ymd = btn.value || app.todayYmd();
     const [year, month] = ymd.split('-').map(Number);
     document.querySelectorAll('.day-date-btn[aria-expanded="true"]').forEach(el => {
       if (el !== btn) el.setAttribute('aria-expanded', 'false');
     });
+    document.querySelectorAll('.ai-constraint-range[aria-expanded="true"]').forEach(el => {
+      el.setAttribute('aria-expanded', 'false');
+    });
     app.rangePick = { mode: 'day', anchor: btn.value || '', hover: '', year, month: month - 1, zoom: 'day', target: btn };
     pop.hidden = false;
     btn.setAttribute('aria-expanded', 'true');
     document.getElementById('schedule-range-btn')?.setAttribute('aria-expanded', 'false');
-    document.getElementById('builder-schedule')?.classList.add('is-picking');
+    document.getElementById('ai-trip-range-btn')?.setAttribute('aria-expanded', 'false');
+    if (!inAiModal) document.getElementById('builder-schedule')?.classList.add('is-picking');
     app.renderTripRange();
   };
 
@@ -654,6 +662,9 @@ export function installBuilder(app) {
     if (btn) btn.setAttribute('aria-expanded', 'false');
     document.getElementById('ai-trip-range-btn')?.setAttribute('aria-expanded', 'false');
     document.querySelectorAll('.day-date-btn[aria-expanded="true"]').forEach(el => {
+      el.setAttribute('aria-expanded', 'false');
+    });
+    document.querySelectorAll('.ai-constraint-range[aria-expanded="true"]').forEach(el => {
       el.setAttribute('aria-expanded', 'false');
     });
     card?.classList.remove('is-picking');
@@ -675,9 +686,46 @@ export function installBuilder(app) {
     document.querySelectorAll('.day-date-btn[aria-expanded="true"]').forEach(el => {
       el.setAttribute('aria-expanded', 'false');
     });
+    document.querySelectorAll('.ai-constraint-range[aria-expanded="true"]').forEach(el => {
+      el.setAttribute('aria-expanded', 'false');
+    });
     document.getElementById('schedule-range-btn')?.setAttribute('aria-expanded', 'false');
     document.getElementById('builder-schedule')?.classList.remove('is-picking');
     app.rangePick = { mode: 'ai', anchor: '', hover: '', year, month: month - 1, zoom: 'day', target: btn };
+    app.liftSchedulePopover();
+    pop.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    app.renderTripRange();
+  };
+
+  app.paintConstraintRange = function paintConstraintRange(btn) {
+    if (!btn) return;
+    const start = btn.dataset.start || '';
+    const end = btn.dataset.end || '';
+    let label = 'Add nights';
+    if (start && end && start !== end) label = `${app.formatTripDate(start)} – ${app.formatTripDate(end)}`;
+    else if (start) label = app.formatTripDate(start);
+    btn.textContent = label;
+    btn.classList.toggle('is-empty', !start);
+    btn.setAttribute('aria-label', start ? `Change nights, ${label}` : 'Set stay nights');
+  };
+
+  app.openConstraintRange = function openConstraintRange(btn) {
+    const pop = document.getElementById('schedule-popover');
+    if (!pop || !btn) return;
+    app.closeTimePicker();
+    const ymd = btn.dataset.start || document.getElementById('ai-trip-range-btn')?.dataset.start || app.todayYmd();
+    const [year, month] = ymd.split('-').map(Number);
+    document.querySelectorAll('.day-date-btn[aria-expanded="true"]').forEach(el => {
+      el.setAttribute('aria-expanded', 'false');
+    });
+    document.querySelectorAll('.ai-constraint-range[aria-expanded="true"]').forEach(el => {
+      if (el !== btn) el.setAttribute('aria-expanded', 'false');
+    });
+    document.getElementById('schedule-range-btn')?.setAttribute('aria-expanded', 'false');
+    document.getElementById('ai-trip-range-btn')?.setAttribute('aria-expanded', 'false');
+    document.getElementById('builder-schedule')?.classList.remove('is-picking');
+    app.rangePick = { mode: 'ai-stay', anchor: '', hover: '', year, month: month - 1, zoom: 'day', target: btn };
     app.liftSchedulePopover();
     pop.hidden = false;
     btn.setAttribute('aria-expanded', 'true');
@@ -725,14 +773,20 @@ export function installBuilder(app) {
     let end = ymd;
     if (end < start) { const swap = start; start = end; end = swap; }
     const length = app.daysBetweenYmd(start, end) + 1;
-    if (pick.mode === 'ai') {
-      if (app.AI_TRIP_MAX_DAYS && length > app.AI_TRIP_MAX_DAYS) {
+    if (pick.mode === 'ai' || pick.mode === 'ai-stay') {
+      if (pick.mode === 'ai' && app.AI_TRIP_MAX_DAYS && length > app.AI_TRIP_MAX_DAYS) {
         if (app.setAiStatus) app.setAiStatus('ai-trip-status', app.aiTripLengthMessage(), true);
         const hint = document.getElementById('schedule-hint');
         if (hint) hint.textContent = 'Up to ' + app.AI_TRIP_MAX_DAYS + ' days';
         return;
       }
-      app.setAiTripRange(start, end);
+      if (pick.mode === 'ai') {
+        app.setAiTripRange(start, end);
+      } else if (pick.target && pick.target.isConnected) {
+        pick.target.dataset.start = start;
+        pick.target.dataset.end = end;
+        app.paintConstraintRange(pick.target);
+      }
       if (app.setAiStatus) app.setAiStatus('ai-trip-status', '');
       app.closeTripRange();
       return;
@@ -1580,7 +1634,11 @@ export function installBuilder(app) {
   };
 
   app.setAiPanel = function setAiPanel(which) {
-    if (app.rangePick?.mode === 'ai') app.closeTripRange();
+    if (app.rangePick?.mode === 'ai' || app.rangePick?.mode === 'ai-stay') app.closeTripRange();
+    else if (app.rangePick?.mode === 'day' && app.rangePick?.target?.closest('#ai-build-modal')) {
+      app.closeTripRange();
+    }
+    if (!which) app.closeTimePicker();
     const tripOpen = which === 'trip';
     const dayOpen = which === 'day';
     const tripForm = document.getElementById('ai-trip-form');
