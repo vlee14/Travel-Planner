@@ -911,12 +911,230 @@ export function installAi(app) {
     throw lastError || new Error('The model did not return a plan.');
   };
 
+  app.tripConstraintList = function tripConstraintList(kind) {
+    if (kind === 'hotel') return document.getElementById('ai-trip-hotels');
+    if (kind === 'booked') return document.getElementById('ai-trip-booked');
+    if (kind === 'wish') return document.getElementById('ai-trip-wishlist');
+    return null;
+  };
+
+  app.tripConstraintRow = function tripConstraintRow(kind, data = {}) {
+    const row = document.createElement('div');
+    row.className = 'ai-constraint-row';
+    row.dataset.kind = kind;
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'ai-constraint-remove';
+    remove.dataset.action = 'remove-constraint';
+    remove.setAttribute('aria-label', kind === 'hotel' ? 'Remove stay' : kind === 'booked' ? 'Remove booking' : 'Remove place');
+    remove.innerHTML = app.icon('trash', 16);
+
+    if (kind === 'hotel') {
+      const hotel = document.createElement('input');
+      hotel.type = 'text';
+      hotel.dataset.field = 'hotel';
+      hotel.maxLength = 120;
+      hotel.placeholder = 'Hotel or area';
+      hotel.autocomplete = 'off';
+      hotel.value = data.hotel || '';
+      hotel.setAttribute('aria-label', 'Stay name');
+
+      const nights = document.createElement('button');
+      nights.type = 'button';
+      nights.className = 'date-trigger ai-constraint-range is-empty';
+      nights.setAttribute('aria-haspopup', 'dialog');
+      nights.setAttribute('aria-expanded', 'false');
+      nights.setAttribute('aria-controls', 'schedule-popover');
+      if (data.start) nights.dataset.start = data.start;
+      if (data.end) nights.dataset.end = data.end;
+      app.paintConstraintRange(nights);
+
+      row.append(hotel, nights, remove);
+      queueMicrotask(() => hotel.focus());
+      return row;
+    }
+
+    if (kind === 'booked') {
+      const time = document.createElement('button');
+      time.type = 'button';
+      time.className = 'time-trigger is-empty';
+      time.dataset.field = 'time';
+      time.setAttribute('aria-label', 'Booking time');
+      time.setAttribute('aria-haspopup', 'dialog');
+      time.setAttribute('aria-expanded', 'false');
+      time.setAttribute('aria-controls', 'time-popover');
+      app.syncTimeTrigger(time, data.time || '');
+
+      const content = document.createElement('input');
+      content.type = 'text';
+      content.dataset.field = 'content';
+      content.maxLength = 180;
+      content.placeholder = 'Booked activity';
+      content.autocomplete = 'off';
+      content.value = data.content || '';
+      content.setAttribute('aria-label', 'Booked activity');
+
+      const date = document.createElement('button');
+      date.type = 'button';
+      date.className = 'date-trigger day-date-btn is-empty';
+      date.setAttribute('aria-haspopup', 'dialog');
+      date.setAttribute('aria-expanded', 'false');
+      date.setAttribute('aria-controls', 'schedule-popover');
+      date.setAttribute('aria-label', 'Booking date');
+      if (data.date) {
+        date.value = data.date;
+        date.textContent = app.formatTripDate(data.date);
+        date.classList.remove('is-empty');
+      } else {
+        date.value = '';
+        date.textContent = 'Add date';
+      }
+
+      row.append(time, content, date, remove);
+      queueMicrotask(() => content.focus());
+      return row;
+    }
+
+    const content = document.createElement('input');
+    content.type = 'text';
+    content.dataset.field = 'content';
+    content.maxLength = 180;
+    content.placeholder = 'Place or activity';
+    content.autocomplete = 'off';
+    content.value = data.content || '';
+    content.setAttribute('aria-label', 'Place to see');
+    row.append(content, remove);
+    queueMicrotask(() => content.focus());
+    return row;
+  };
+
+  app.addTripConstraint = function addTripConstraint(kind) {
+    const list = app.tripConstraintList(kind);
+    if (!list) return null;
+    const row = app.tripConstraintRow(kind);
+    list.appendChild(row);
+    return row;
+  };
+
+  app.collectTripConstraints = function collectTripConstraints() {
+    const hotels = [];
+    document.querySelectorAll('#ai-trip-hotels .ai-constraint-row').forEach(row => {
+      const hotel = app.cleanPlanText(row.querySelector('[data-field="hotel"]')?.value || '', 120);
+      const nights = row.querySelector('.ai-constraint-range');
+      const start = app.normalizeYmd(nights?.dataset.start || '');
+      const end = app.normalizeYmd(nights?.dataset.end || start);
+      if (!hotel && !start) return;
+      hotels.push({ hotel, start, end: end || start });
+    });
+
+    const booked = [];
+    document.querySelectorAll('#ai-trip-booked .ai-constraint-row').forEach(row => {
+      const content = app.cleanPlanText(row.querySelector('[data-field="content"]')?.value || '', 180);
+      const time = app.timeToInputValue(row.querySelector('[data-field="time"]')?.value || '');
+      const date = app.normalizeYmd(row.querySelector('.day-date-btn')?.value || '');
+      if (!content && !time && !date) return;
+      booked.push({ content, time, date });
+    });
+
+    const wishlist = [];
+    document.querySelectorAll('#ai-trip-wishlist .ai-constraint-row').forEach(row => {
+      const content = app.cleanPlanText(row.querySelector('[data-field="content"]')?.value || '', 180);
+      if (!content) return;
+      wishlist.push({ content });
+    });
+
+    return { hotels, booked, wishlist };
+  };
+
+  app.tripConstraintsReady = function tripConstraintsReady(constraints, start, end, statusId) {
+    for (const stay of constraints.hotels || []) {
+      if (!stay.hotel || !stay.start || !stay.end) {
+        app.setAiStatus(statusId, 'Each stay needs a hotel and nights.', true);
+        return false;
+      }
+      if (stay.end < stay.start) {
+        app.setAiStatus(statusId, 'Stay nights have to end on or after they begin.', true);
+        return false;
+      }
+      if (stay.start < start || stay.end > end) {
+        app.setAiStatus(statusId, 'Keep stays inside the trip dates.', true);
+        return false;
+      }
+    }
+    for (const item of constraints.booked || []) {
+      if (!item.content || !item.time || !item.date) {
+        app.setAiStatus(statusId, 'Each booking needs a date, time, and activity.', true);
+        return false;
+      }
+      if (item.date < start || item.date > end) {
+        app.setAiStatus(statusId, 'Keep bookings inside the trip dates.', true);
+        return false;
+      }
+    }
+    return true;
+  };
+
+  app.formatTripConstraintsPrompt = function formatTripConstraintsPrompt(constraints) {
+    const lines = [];
+    const hotels = (constraints && constraints.hotels) || [];
+    const booked = (constraints && constraints.booked) || [];
+    const wishlist = (constraints && constraints.wishlist) || [];
+    if (hotels.length) {
+      lines.push('Locked stays (put this exact hotel text on each of these nights; do not invent a different hotel for those days):');
+      hotels.forEach(stay => {
+        const span = stay.start === stay.end ? stay.start : stay.start + ' through ' + stay.end;
+        lines.push('- ' + stay.hotel + ': ' + span);
+      });
+    }
+    if (booked.length) {
+      lines.push('Already booked (must appear at these exact times; build the rest of each day around them and do not move or rename them):');
+      booked.forEach(item => {
+        lines.push('- ' + item.date + ' ' + item.time + ' ' + item.content);
+      });
+    }
+    if (wishlist.length) {
+      lines.push('Want to see (include each of these on a suitable day; no fixed times):');
+      wishlist.forEach(item => lines.push('- ' + item.content));
+    }
+    return lines.join('\n');
+  };
+
+  app.applyTripConstraints = function applyTripConstraints(days, constraints) {
+    const list = Array.isArray(days) ? days : [];
+    const byDate = new Map(list.map(day => [day.date, day]));
+    ((constraints && constraints.hotels) || []).forEach(stay => {
+      if (!stay.hotel || !stay.start || !stay.end) return;
+      let cursor = stay.start;
+      while (cursor && cursor <= stay.end) {
+        const day = byDate.get(cursor);
+        if (day) day.hotel = stay.hotel;
+        cursor = app.addDaysYmd(cursor, 1);
+      }
+    });
+    ((constraints && constraints.booked) || []).forEach(item => {
+      if (!item.content || !item.time || !item.date) return;
+      const day = byDate.get(item.date);
+      if (!day) return;
+      const activities = Array.isArray(day.activities) ? day.activities.slice() : [];
+      const key = item.content.toLowerCase();
+      const match = activities.findIndex(act => (act.content || '').trim().toLowerCase() === key);
+      if (match >= 0) activities[match] = { time: item.time, content: item.content };
+      else activities.push({ time: item.time, content: item.content });
+      activities.sort((a, b) => app.timeToMinutes(a.time || '99:99') - app.timeToMinutes(b.time || '99:99'));
+      day.activities = activities.filter(act => act.content);
+    });
+    return list;
+  };
+
   app.tripPrompt = function tripPrompt(brief) {
     const span = app.daysBetweenYmd(brief.start, brief.end) + 1;
     const dates = [];
     for (let i = 0; i < span; i++) dates.push(app.addDaysYmd(brief.start, i));
     const interests = brief.interests ? brief.interests.slice(0, 800) : 'a well-rounded first visit';
-    return [
+    const constraintText = app.formatTripConstraintsPrompt(brief.constraints || {});
+    const hasLockedHotel = ((brief.constraints && brief.constraints.hotels) || []).length > 0;
+    const lines = [
       'You are planning a realistic trip. Reply with one JSON object and nothing else.',
       'No markdown fences, no comments, and no trailing commas.',
       'Schema: {"title":"short name","days":[{"date":"YYYY-MM-DD","location":"city or neighborhood","hotel":"area to stay or empty","activities":[{"time":"HH:MM","content":"specific place and what to do"}],"notes":"one practical tip or empty"}]}',
@@ -924,10 +1142,16 @@ export function installAi(app) {
       'Pace: ' + brief.pace + '. ' + app.paceGuide(brief.pace) + '.',
       'Interests: ' + interests,
       'Include exactly these dates, in this order, one object each: ' + dates.join(', ') + '.',
-      'Use 24-hour HH:MM times. Leave gaps for meals and transit. Name specific places. Do not repeat an attraction on a later day.',
-      'Do not invent prices, confirmation numbers, or private addresses. hotel is a neighborhood or kind of stay, not a reservation.',
-      'Keep each activity under 140 characters.'
-    ].join('\n');
+      'Use 24-hour HH:MM times. Leave gaps for meals and transit. Name specific places. Do not repeat an attraction on a later day.'
+    ];
+    if (constraintText) lines.push(constraintText);
+    if (hasLockedHotel) {
+      lines.push('Do not invent prices, confirmation numbers, or private addresses. For days without a locked stay, hotel may be a neighborhood or kind of stay.');
+    } else {
+      lines.push('Do not invent prices, confirmation numbers, or private addresses. hotel is a neighborhood or kind of stay, not a reservation.');
+    }
+    lines.push('Keep each activity under 140 characters.');
+    return lines.join('\n');
   };
 
   app.dayPrompt = function dayPrompt(brief) {
@@ -948,7 +1172,7 @@ export function installAi(app) {
     return lines.join('\n');
   };
 
-  app.generatedTripDays = function generatedTripDays(payload, start, end, where, pace) {
+  app.generatedTripDays = function generatedTripDays(payload, start, end, where, pace, constraints) {
     const body = Array.isArray(payload) ? { days: payload } : (payload || {});
     const rawDays = Array.isArray(body.days) ? body.days : [];
     const byDate = new Map();
@@ -967,6 +1191,7 @@ export function installAi(app) {
       day.date = date;
       days.push(day);
     }
+    app.applyTripConstraints(days, constraints);
     const fallback = app.cleanPlanText(String(where || '').split(/,|&|\band\b/i)[0], 80);
     let last = fallback;
     days.forEach(day => {
@@ -999,7 +1224,7 @@ export function installAi(app) {
   app.requestGeneratedTrip = async function requestGeneratedTrip(brief) {
     const span = app.daysBetweenYmd(brief.start, brief.end) + 1;
     const payload = await app.completeAiJson(app.tripPrompt(brief), app.tripOutputTokens(span), 180000);
-    return app.generatedTripDays(payload, brief.start, brief.end, brief.where, brief.pace);
+    return app.generatedTripDays(payload, brief.start, brief.end, brief.where, brief.pace, brief.constraints);
   };
 
   app.requestGeneratedDay = async function requestGeneratedDay(brief) {
@@ -1045,6 +1270,7 @@ export function installAi(app) {
     const end = app.normalizeYmd(rangeBtn?.dataset.end || '');
     const interests = (document.getElementById('ai-trip-interests').value || '').trim();
     const pace = app.selectedPace('ai-trip-pace');
+    const constraints = app.collectTripConstraints();
     app.setAiStatus('ai-trip-status', '');
     if (!where) {
       app.setAiStatus('ai-trip-status', 'Add a destination first.', true);
@@ -1065,6 +1291,7 @@ export function installAi(app) {
       app.setAiStatus('ai-trip-status', app.aiTripLengthMessage(), true);
       return;
     }
+    if (!app.tripConstraintsReady(constraints, start, end, 'ai-trip-status')) return;
     if (!app.aiPlanReady('ai-trip-status')) return;
     const existing = app.collectBuilderDays().filter(app.dayHasContent);
     if (existing.length) {
@@ -1078,7 +1305,14 @@ export function installAi(app) {
     app.setAiBuildBusy('trip');
     app.setAiStatus('ai-trip-status', 'Dreaming up the trip…');
     try {
-      const plan = await app.requestGeneratedTrip({ where: where.slice(0, 200), start, end, interests, pace });
+      const plan = await app.requestGeneratedTrip({
+        where: where.slice(0, 200),
+        start,
+        end,
+        interests,
+        pace,
+        constraints
+      });
       app.applyGeneratedTrip(plan);
       app.showError('');
       app.setAiPanel('');

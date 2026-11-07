@@ -307,7 +307,7 @@ body.has-api-key .ai-choice {
   --label-col: 6.2rem;
   --field-gap: 0.7rem;
   width: min(32rem, 100%);
-  max-height: min(88vh, 44rem);
+  max-height: min(90vh, 52rem);
   overflow: auto;
   padding: 1.15rem 1.2rem 1.15rem;
   background: color-mix(in srgb, var(--surface) 92%, transparent);
@@ -408,6 +408,168 @@ body.has-api-key .ai-choice {
 .ai-form > .btn {
   width: 100%;
   margin-top: 0.75rem;
+}
+
+.ai-constraints {
+  margin: 0.15rem 0 0;
+  padding: 0.55rem 0 0;
+  border-top: 0.5px solid var(--separator);
+}
+
+.ai-constraints-label {
+  margin: 0 0 0.35rem;
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-label);
+}
+
+.ai-constraint-group + .ai-constraint-group {
+  margin-top: 0.55rem;
+}
+
+.ai-constraint-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.2rem;
+}
+
+.ai-constraint-title {
+  color: var(--text);
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-semibold);
+}
+
+.ai-constraint-add {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+
+.ai-constraint-add:hover,
+.ai-constraint-add:focus-visible {
+  text-decoration: underline;
+  outline: none;
+}
+
+.ai-constraint-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.ai-constraint-list:empty {
+  display: none;
+}
+
+.ai-constraint-row {
+  display: grid;
+  gap: 0.35rem 0.45rem;
+  align-items: center;
+  padding: 0.4rem 0.45rem;
+  border-radius: 12px;
+  background: var(--fill);
+}
+
+.ai-constraint-row[data-kind="hotel"] {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.ai-constraint-row[data-kind="booked"] {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+}
+
+.ai-constraint-row[data-kind="wish"] {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.ai-constraint-row input {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0.1rem 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  font: inherit;
+  line-height: 1.35;
+}
+
+.ai-constraint-row input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.ai-constraint-row .date-trigger,
+.ai-constraint-row .time-trigger {
+  justify-self: start;
+  max-width: 100%;
+  padding-left: 0;
+  color: var(--accent);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+  line-height: 1.2;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ai-constraint-row .date-trigger.is-empty,
+.ai-constraint-row .time-trigger.is-empty {
+  color: var(--text-muted);
+  font-weight: var(--weight-medium);
+}
+
+.ai-constraint-remove {
+  width: 1.7rem;
+  height: 1.7rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ai-constraint-remove:hover,
+.ai-constraint-remove:focus-visible {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+  outline: none;
+}
+
+@media (max-width: 480px) {
+  .ai-constraint-row[data-kind="hotel"],
+  .ai-constraint-row[data-kind="booked"] {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .ai-constraint-row[data-kind="hotel"] .ai-constraint-range,
+  .ai-constraint-row[data-kind="booked"] .day-date-btn {
+    grid-column: 1 / -2;
+  }
+
+  .ai-constraint-row[data-kind="booked"] .time-trigger {
+    grid-column: 1;
+  }
+
+  .ai-constraint-row[data-kind="booked"] input[data-field="content"] {
+    grid-column: 1 / -2;
+  }
 }
 
 .ai-hint,

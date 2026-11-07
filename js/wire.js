@@ -858,7 +858,13 @@ document.addEventListener('click', (event) => {
   const pop = document.getElementById('schedule-popover');
   const btn = document.getElementById('schedule-range-btn');
   if (!pop || pop.hidden) return;
-  if (pop.contains(event.target) || btn?.contains(event.target) || event.target.closest('.day-date-btn') || event.target.closest('#ai-trip-range-btn')) return;
+  if (
+    pop.contains(event.target) ||
+    btn?.contains(event.target) ||
+    event.target.closest('.day-date-btn') ||
+    event.target.closest('#ai-trip-range-btn') ||
+    event.target.closest('.ai-constraint-range')
+  ) return;
   app.closeTripRange();
 });
 
@@ -940,6 +946,40 @@ document.getElementById('ai-day-form')?.addEventListener('submit', (event) => {
 });
 document.getElementById('ai-trip-form')?.addEventListener('input', () => app.setAiStatus('ai-trip-status', ''));
 document.getElementById('ai-day-form')?.addEventListener('input', () => app.setAiStatus('ai-day-status', ''));
+document.getElementById('ai-trip-form')?.addEventListener('click', (event) => {
+  const addBtn = event.target.closest('[data-constraint]');
+  if (addBtn) {
+    event.preventDefault();
+    app.addTripConstraint(addBtn.dataset.constraint);
+    app.setAiStatus('ai-trip-status', '');
+    return;
+  }
+  const removeBtn = event.target.closest('[data-action="remove-constraint"]');
+  if (removeBtn) {
+    event.preventDefault();
+    removeBtn.closest('.ai-constraint-row')?.remove();
+    app.setAiStatus('ai-trip-status', '');
+    return;
+  }
+  const rangeBtn = event.target.closest('.ai-constraint-range');
+  if (rangeBtn) {
+    event.preventDefault();
+    const pop = document.getElementById('schedule-popover');
+    if (pop && !pop.hidden && app.rangePick?.mode === 'ai-stay' && app.rangePick?.target === rangeBtn) {
+      app.closeTripRange();
+    } else {
+      app.openConstraintRange(rangeBtn);
+    }
+    return;
+  }
+  const dateBtn = event.target.closest('.day-date-btn');
+  if (dateBtn) {
+    event.preventDefault();
+    const pop = document.getElementById('schedule-popover');
+    if (pop && !pop.hidden && app.rangePick?.target === dateBtn) app.closeTripRange();
+    else app.openDayDate(dateBtn);
+  }
+});
 document.querySelectorAll('.ai-pace').forEach(group => {
   group.addEventListener('click', (event) => {
     const paceBtn = event.target.closest('[data-pace]');
